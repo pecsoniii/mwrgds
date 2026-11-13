@@ -158,9 +158,10 @@ internal fun AimBrassPanel(
             dim = RgdsControls.mapZoomLevel <= RgdsControls.MIN_ZOOM_LEVEL
         ) { RgdsControls.zoomMap(-1) }
         // Flat local map or the engine's 3D view of the place.
+        val mapIs3d = Map3DMath.shouldRender(RgdsControls.map3d, state.hasData, state.cellIsExterior)
         BrassRound(
-            CubeIcon, if (RgdsControls.map3d) "3D" else "2D", 584.dp, 172.dp, size = 46.dp,
-            active = RgdsControls.map3d, description = "Switch the map between flat and 3D"
+            CubeIcon, if (mapIs3d) "3D" else "2D", 584.dp, 172.dp, size = 46.dp,
+            active = mapIs3d, description = "Toggle 3D outdoors; interiors use the flat map"
         ) { RgdsControls.toggleMap3d() }
 
         BrassRound(HourglassIcon, "WAIT", 18.dp, 132.dp, size = 56.dp) { RgdsControls.restOrWait() }
@@ -522,7 +523,7 @@ private fun BrassSettings(onClose: () -> Unit) {
                 color = IronMuted, fontSize = 12.sp, fontFamily = MwDisplay
             )
             Text(
-                "Hold WEAPON for your two ammo favourites; hold a slot to choose arrows or bolts. R2 attacks; Select opens Rest/Wait.",
+                "3D maps are available outdoors; interiors use the flat map. Hold WEAPON for your two ammo favourites; hold a slot to choose arrows or bolts. R2 attacks; Select opens Rest/Wait.",
                 color = IronMuted, fontSize = 12.sp, fontFamily = MwDisplay
             )
         }

@@ -1,0 +1,665 @@
+diff --git a/apps/openmw/CMakeLists.txt b/apps/openmw/CMakeLists.txt
+index 27f888d..56daa6f 100644
+--- a/apps/openmw/CMakeLists.txt
++++ b/apps/openmw/CMakeLists.txt
+@@ -20,7 +20,7 @@ source_group(apps/openmw FILES main.cpp androidmain.cpp ${OPENMW_SOURCES} ${OPEN
+ add_openmw_dir (mwrender
+     actors objects renderingmanager animation rotatecontroller sky skyutil npcanimation esm4npcanimation vismask
+     creatureanimation effectmanager util renderinginterface pathgrid rendermode weaponanimation screenshotmanager
+-    bulletdebugdraw globalmap characterpreview camera localmap water terrainstorage ripplesimulation
++    bulletdebugdraw globalmap characterpreview camera localmap companionmap3d water terrainstorage ripplesimulation
+     renderbin actoranimation landmanager navmesh actorspaths recastmesh fogmanager objectpaging groundcover
+     postprocessor pingpongcull luminancecalculator pingpongcanvas transparentpass precipitationocclusion ripples
+     actorutil distortion animationpriority bonegroup blendmask animblendcontroller
+diff --git a/apps/openmw/androidmain.cpp b/apps/openmw/androidmain.cpp
+index a3b5cb7..62eaeaa 100644
+--- a/apps/openmw/androidmain.cpp
++++ b/apps/openmw/androidmain.cpp
+@@ -78,6 +78,8 @@ static jmethodID g_globalMapBaseMethod = nullptr;
+ static jmethodID g_globalMapOverlayMethod = nullptr;
+ static jmethodID g_mapFogMethod = nullptr;
+ static jmethodID g_hudVisibilityMethod = nullptr;
++// RG DS 3D local map (companionmap3d.cpp): one picture with its camera matrix.
++static jmethodID g_map3dMethod = nullptr;
+ 
+ // Mirrors OpenMW's in-game Hide UI state (mHudEnabled), updated on every toggle
+ // from companionDeliverHudVisibility(). Read by ControllerManager via the
+@@ -429,12 +431,20 @@ static void exportTopics()
+     Log(Debug::Info) << "COMPANION_TOPICS_END";
+ }
+ 
++// RG DS 3D local map, companionmap3d.cpp.
++extern "C" void companionMap3DCommand(const char* args);
++extern "C" void companionMap3DFrame();
++
+ // Called from InputWrapper::capture() every frame on the engine thread.
+ void drainCompanionCommands()
+ {
+     MWBase::LuaManager* lua = g_luaManagerPtr.load(std::memory_order_acquire);
+     if (!lua) return;
+ 
++    // Before the queue-empty return below, so it runs every frame: it decides whether the 3D map
++    // draws a new picture this frame.
++    companionMap3DFrame();
++
+     // Per-frame poll for the pending "make the map the active controller window" request set by
+     // CMP:openmap below. The Lua AddUiMode that opens the map is deferred, so GM_Inventory is not
+     // open yet when CMP:openmap is drained -- poll here (this runs BEFORE the queue-empty
+@@ -850,6 +860,10 @@ void drainCompanionCommands()
+         {
+             companionMapExportAll();
+         }
++        else if (cmd.rfind("CMP:map3d:", 0) == 0)
++        {
++            companionMap3DCommand(cmd.c_str() + (sizeof("CMP:map3d:") - 1));
++        }
+         else if (cmd.rfind("CMP:map_note_add:", 0) == 0)
+         {
+             // "<worldX>|<worldY>|<note>" -- the note is the raw tail (it may contain spaces and ':').
+@@ -1019,6 +1033,13 @@ Java_org_openmw_EngineActivity_installCompanionSink(JNIEnv* env, jobject /*thiz*
+                                             "(IIIII[B)V");
+     g_hudVisibilityMethod = env->GetStaticMethodID(g_companionClass, "onHudVisibilityChanged",
+                                                    "(Z)V");
++    // Looked up last and allowed to be missing, so a companion without the 3D map still installs.
++    g_map3dMethod = env->GetStaticMethodID(g_companionClass, "onCompanionMap3D", "(II[F[FI[B)V");
++    if (env->ExceptionCheck())
++    {
++        env->ExceptionClear();
++        g_map3dMethod = nullptr;
++    }
+     env->DeleteLocalRef(cls);
+ 
+     // Companion lines that still ride print()/Log() (everything not yet migrated to
+@@ -1148,6 +1169,36 @@ extern "C" void companionDeliverMapFog(
+     e->DeleteLocalRef(arr);
+ }
+ 
++// RG DS 3D local map. Called from companionmap3d.cpp's delivery thread (never the draw thread) with
++// one picture, rows top-down, and the row-major matrix that takes a world position as a row vector
++// (x, y, z, 1) to clip space. params = focus x, y, z, distance, yaw degrees, interior (0/1).
++extern "C" void companionDeliverMap3D(int width, int height, const float* viewProjection, float focusX,
++    float focusY, float focusZ, float distance, float yawDegrees, int interior, int sequence,
++    const unsigned char* rgba)
++{
++    if (!g_companionVm || !g_companionClass || !g_map3dMethod || !rgba || !viewProjection) return;
++
++    JNIEnv* e = nullptr;
++    g_companionVm->AttachCurrentThread(&e, nullptr);
++    const jsize size = static_cast<jsize>(width) * height * 4;
++    jbyteArray pixels = e->NewByteArray(size);
++    jfloatArray matrix = e->NewFloatArray(16);
++    jfloatArray params = e->NewFloatArray(6);
++    if (pixels && matrix && params)
++    {
++        e->SetByteArrayRegion(pixels, 0, size, reinterpret_cast<const jbyte*>(rgba));
++        e->SetFloatArrayRegion(matrix, 0, 16, viewProjection);
++        const float p[6] = { focusX, focusY, focusZ, distance, yawDegrees, static_cast<float>(interior) };
++        e->SetFloatArrayRegion(params, 0, 6, p);
++        e->CallStaticVoidMethod(g_companionClass, g_map3dMethod, (jint)width, (jint)height, matrix, params,
++            (jint)sequence, pixels);
++        if (e->ExceptionCheck()) { e->ExceptionDescribe(); e->ExceptionClear(); }
++    }
++    if (pixels) e->DeleteLocalRef(pixels);
++    if (matrix) e->DeleteLocalRef(matrix);
++    if (params) e->DeleteLocalRef(params);
++}
++
+ // Called from WindowManager::setHudVisibility (windowmanagerimp.cpp) whenever the
+ // player toggles OpenMW's in-game Hide UI. Mirrors mHudEnabled onto the Alpha3
+ // second-screen overlay (touch controls / gear icon) via a static Kotlin method.
+diff --git a/apps/openmw/mwrender/companionmap3d.cpp b/apps/openmw/mwrender/companionmap3d.cpp
+new file mode 100755
+index 0000000..6c7f830
+--- /dev/null
++++ b/apps/openmw/mwrender/companionmap3d.cpp
+@@ -0,0 +1,536 @@
++// OpenMW-DS (RG DS): a 3D local map for the companion screen.
++//
++// The world around a point, seen from above at an angle, drawn into a texture by a camera of its own
++// and read back for the bottom screen, the same way companion-localmap-export reads the flat local
++// map. It draws the loaded cells only (the RG DS runs without distant terrain), with the flat local
++// map's fixed light and no fog, so the time of day and the weather don't change it.
++//
++// It draws on request, not every frame. The companion turns it on with the size of its picture and
++// a zoom, and the engine draws a new picture when the player has moved, the view or the cell has
++// changed, at most kMinIntervalMs apart. Each picture comes with the camera matrix that made it, so
++// the companion can place the player arrow and markers itself, at their live positions.
++//
++// Modelled on Modern Morrow's Map3D (github.com/DurhamG/modern-morrow, apps/openmw/mwrender/map3d.cpp,
++// GPLv3 like OpenMW): the camera's pitch, field of view, near/far planes and the picture-space maths
++// come from there. The drawing on request and the read-back are this port's own.
++
++#include <algorithm>
++#include <atomic>
++#include <chrono>
++#include <cmath>
++#include <condition_variable>
++#include <cstdlib>
++#include <cstring>
++#include <mutex>
++#include <string>
++#include <thread>
++#include <vector>
++
++#include <osg/Camera>
++#include <osg/Fog>
++#include <osg/Group>
++#include <osg/Light>
++#include <osg/LightModel>
++#include <osg/LightSource>
++#include <osg/PolygonMode>
++#include <osg/Texture2D>
++#include <osg/Uniform>
++
++#include <components/debug/debuglog.hpp>
++#include <components/sceneutil/depth.hpp>
++#include <components/sceneutil/lightmanager.hpp>
++#include <components/sceneutil/rtt.hpp>
++#include <components/sceneutil/shadow.hpp>
++#include <components/sceneutil/visitor.hpp>
++
++#include "../mwbase/environment.hpp"
++#include "../mwbase/statemanager.hpp"
++#include "../mwbase/world.hpp"
++#include "../mwworld/cellstore.hpp"
++#include "../mwworld/class.hpp"
++#include "../mwworld/ptr.hpp"
++
++#include "renderingmanager.hpp"
++#include "vismask.hpp"
++
++#ifdef __ANDROID__
++#include <GLES3/gl3.h>
++#endif
++
++// Defined in androidmain.cpp. Delivers one picture, rows top-down, with the matrix that takes a world
++// position (x, y, z, 1) as a row vector to clip space (OSG convention: clip = p * m, m row-major).
++extern "C" void companionDeliverMap3D(int width, int height, const float* viewProjection, float focusX,
++    float focusY, float focusZ, float distance, float yawDegrees, int interior, int sequence,
++    const unsigned char* rgba);
++
++namespace
++{
++    constexpr double kFieldOfView = 45.0;
++    constexpr double kPitch = 55.0;
++    constexpr long long kMinIntervalMs = 200;
++    // A picture in flight that never comes back (the frame was dropped) is given up after this long.
++    constexpr long long kInFlightTimeoutMs = 1500;
++    constexpr int kMaxSize = 640;
++
++    long long nowMs()
++    {
++        return std::chrono::duration_cast<std::chrono::milliseconds>(
++            std::chrono::steady_clock::now().time_since_epoch())
++            .count();
++    }
++
++    // What the companion asked for. Written and read on the engine thread only (commands are drained
++    // there), so it needs no lock.
++    struct Wanted
++    {
++        bool mOn = false;
++        float mDistance = 3000.f;
++        float mYaw = 0.f; // degrees, 0 = looking north
++        float mPanX = 0.f;
++        float mPanY = 0.f;
++        int mWidth = 480;
++        int mHeight = 360;
++        bool mForce = false;
++    };
++    Wanted sWanted;
++
++    // The picture being drawn: what the draw thread hands back with the pixels.
++    struct Capture
++    {
++        osg::Matrixf mViewProjection;
++        osg::Vec3f mFocus;
++        float mDistance = 0.f;
++        float mYaw = 0.f;
++        bool mInterior = false;
++        int mSequence = 0;
++    };
++
++    // Pixels waiting for the delivery thread, so the JNI call and the copy into Java never run on the
++    // draw thread.
++    struct Outbox
++    {
++        std::mutex mMutex;
++        std::condition_variable mCv;
++        bool mFull = false;
++        int mWidth = 0;
++        int mHeight = 0;
++        Capture mCapture;
++        std::vector<unsigned char> mPixels;
++        std::thread mThread;
++        bool mStarted = false;
++    };
++    Outbox sOutbox;
++
++    std::atomic<bool> sInFlight{ false };
++
++    void deliveryLoop()
++    {
++        std::vector<unsigned char> pixels;
++        for (;;)
++        {
++            int width = 0, height = 0;
++            Capture capture;
++            {
++                std::unique_lock<std::mutex> lock(sOutbox.mMutex);
++                sOutbox.mCv.wait(lock, [] { return sOutbox.mFull; });
++                pixels.swap(sOutbox.mPixels);
++                width = sOutbox.mWidth;
++                height = sOutbox.mHeight;
++                capture = sOutbox.mCapture;
++                sOutbox.mFull = false;
++            }
++            companionDeliverMap3D(width, height, capture.mViewProjection.ptr(), capture.mFocus.x(),
++                capture.mFocus.y(), capture.mFocus.z(), capture.mDistance, capture.mYaw, capture.mInterior ? 1 : 0,
++                capture.mSequence, pixels.data());
++        }
++    }
++
++    void post(int width, int height, const Capture& capture, std::vector<unsigned char>& pixels)
++    {
++        std::lock_guard<std::mutex> lock(sOutbox.mMutex);
++        if (!sOutbox.mStarted)
++        {
++            sOutbox.mThread = std::thread(deliveryLoop);
++            sOutbox.mThread.detach();
++            sOutbox.mStarted = true;
++        }
++        // A newer picture replaces one not yet delivered.
++        sOutbox.mPixels.swap(pixels);
++        sOutbox.mWidth = width;
++        sOutbox.mHeight = height;
++        sOutbox.mCapture = capture;
++        sOutbox.mFull = true;
++        sOutbox.mCv.notify_one();
++    }
++}
++
++namespace MWRender
++{
++    class CompanionMap3DRenderToTexture;
++
++    /// Reads the picture back after the camera has drawn it. Runs on the draw thread.
++    struct CompanionMap3DReadBack : public osg::Camera::DrawCallback
++    {
++        explicit CompanionMap3DReadBack(CompanionMap3DRenderToTexture* owner)
++            : mOwner(owner)
++        {
++        }
++        void operator()(osg::RenderInfo& renderInfo) const override;
++        CompanionMap3DRenderToTexture* mOwner;
++    };
++
++    class CompanionMap3DRenderToTexture : public SceneUtil::RTTNode
++    {
++    public:
++        CompanionMap3DRenderToTexture(osg::Node* sceneRoot, int width, int height)
++            : RTTNode(width, height, 0, false, 0, StereoAwareness::Unaware, false)
++            , mSceneRoot(sceneRoot)
++            , mAspect(static_cast<double>(width) / height)
++            , mProjectionUniform(new osg::Uniform("projectionMatrix", osg::Matrixf()))
++        {
++            mProjectionUniform->setDataVariance(osg::Object::DYNAMIC);
++            setNodeMask(0);
++        }
++
++        /// Looks at a point on the ground from a distance, turned by a heading in degrees.
++        void setView(const osg::Vec3f& focus, float distance, float yawDegrees)
++        {
++            const double pitch = osg::DegreesToRadians(kPitch);
++            const double yaw = osg::DegreesToRadians(static_cast<double>(yawDegrees));
++            // Behind the focus along the heading, and up.
++            const osg::Vec3d back(-std::sin(yaw) * std::cos(pitch), -std::cos(yaw) * std::cos(pitch), std::sin(pitch));
++            const osg::Vec3d eye = osg::Vec3d(focus) + back * distance;
++            mViewMatrix.makeLookAt(eye, osg::Vec3d(focus), osg::Vec3d(0.0, 0.0, 1.0));
++
++            const double nearPlane = std::max(10.0, distance * 0.05);
++            const double farPlane = distance * 6.0 + 16384.0;
++            mPlainProjection.makePerspective(kFieldOfView, mAspect, nearPlane, farPlane);
++            mProjectionMatrix = SceneUtil::AutoDepth::isReversed()
++                ? SceneUtil::getReversedZProjectionMatrixAsPerspective(kFieldOfView, mAspect, nearPlane, farPlane)
++                : mPlainProjection;
++        }
++
++        osg::Matrixf getPlainViewProjection() const { return osg::Matrixf(mViewMatrix * mPlainProjection); }
++
++        void setDefaults(osg::Camera* camera) override
++        {
++            // Small feature culling off, as for the flat local map: from above, whole buildings can be
++            // a few pixels across when zoomed out, and a map must still show them.
++            camera->setCullingMode(
++                (osg::Camera::DEFAULT_CULLING | osg::Camera::FAR_PLANE_CULLING) & ~osg::Camera::SMALL_FEATURE_CULLING);
++            SceneUtil::setCameraClearDepth(camera);
++            camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
++            // The player's own view point picks the terrain and paged-object detail, so this camera
++            // reuses the pieces the game view already built instead of making a second set.
++            camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF_INHERIT_VIEWPOINT);
++            camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
++            camera->setClearColor(osg::Vec4(0.03f, 0.03f, 0.04f, 1.f));
++            camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
++            camera->setRenderOrder(osg::Camera::PRE_RENDER);
++            const unsigned int mask = Mask_Scene | Mask_SimpleWater | Mask_Terrain | Mask_Object | Mask_Static;
++            camera->setCullMask(mask);
++            camera->setCullMaskLeft(mask);
++            camera->setCullMaskRight(mask);
++            camera->setNodeMask(Mask_RenderToTexture);
++
++            osg::StateSet* stateset = camera->getOrCreateStateSet();
++            stateset->setAttribute(new osg::PolygonMode(osg::PolygonMode::FRONT_AND_BACK, osg::PolygonMode::FILL),
++                osg::StateAttribute::OVERRIDE);
++            stateset->addUniform(mProjectionUniform, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
++
++            // No fog and no sky blending: the same overrides as the flat local map.
++            osg::ref_ptr<osg::Fog> fog(new osg::Fog);
++            fog->setStart(10000000);
++            fog->setEnd(10000000);
++            stateset->setAttributeAndModes(fog, osg::StateAttribute::OFF | osg::StateAttribute::OVERRIDE);
++            stateset->addUniform(new osg::Uniform("far", 10000000.0f));
++            stateset->addUniform(new osg::Uniform("skyBlendingStart", 8000000.0f));
++            stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f(static_cast<float>(width()),
++                                                                  static_cast<float>(height()))));
++
++            osg::ref_ptr<osg::LightModel> lightmodel = new osg::LightModel;
++            lightmodel->setAmbientIntensity(osg::Vec4(0.35f, 0.35f, 0.35f, 1.f));
++            stateset->setAttributeAndModes(lightmodel, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
++
++            osg::ref_ptr<osg::Light> light = new osg::Light;
++            light->setPosition(osg::Vec4(-0.3f, -0.3f, 0.7f, 0.f));
++            light->setDiffuse(osg::Vec4(0.75f, 0.75f, 0.75f, 1.f));
++            light->setAmbient(osg::Vec4(0, 0, 0, 1));
++            light->setSpecular(osg::Vec4(0, 0, 0, 0));
++            light->setLightNum(0);
++            light->setConstantAttenuation(1.f);
++            light->setLinearAttenuation(0.f);
++            light->setQuadraticAttenuation(0.f);
++
++            osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource;
++            lightSource->setLight(light);
++            lightSource->setStateSetModes(*stateset, osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
++
++            SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*stateset);
++            SceneUtil::configureStateSetSunOverride(static_cast<SceneUtil::LightManager*>(mSceneRoot.get()), light, stateset);
++
++            camera->addChild(lightSource);
++            camera->addChild(mSceneRoot);
++            camera->setPostDrawCallback(new CompanionMap3DReadBack(this));
++        }
++
++        void apply(osg::Camera* camera) override
++        {
++            camera->setViewMatrix(mViewMatrix);
++            camera->setProjectionMatrix(mProjectionMatrix);
++            mProjectionUniform->set(static_cast<osg::Matrixf>(mProjectionMatrix));
++        }
++
++        // Set on the engine thread before the frame that draws, read on the draw thread after it.
++        std::mutex mCaptureMutex;
++        bool mArmed = false;
++        Capture mCapture;
++
++    private:
++        osg::ref_ptr<osg::Node> mSceneRoot;
++        double mAspect;
++        osg::Matrixd mViewMatrix;
++        osg::Matrixd mProjectionMatrix;
++        osg::Matrixd mPlainProjection;
++        osg::ref_ptr<osg::Uniform> mProjectionUniform;
++    };
++
++    void CompanionMap3DReadBack::operator()(osg::RenderInfo& renderInfo) const
++    {
++        Capture capture;
++        {
++            std::lock_guard<std::mutex> lock(mOwner->mCaptureMutex);
++            if (!mOwner->mArmed)
++                return;
++            mOwner->mArmed = false;
++            capture = mOwner->mCapture;
++        }
++#ifdef __ANDROID__
++        osg::Texture* texture = mOwner->getColorTexture(nullptr);
++        osg::Texture::TextureObject* textureObject
++            = texture ? texture->getTextureObject(renderInfo.getState()->getContextID()) : nullptr;
++        if (textureObject == nullptr)
++        {
++            sInFlight.store(false);
++            return;
++        }
++        const int width = static_cast<int>(mOwner->width());
++        const int height = static_cast<int>(mOwner->height());
++
++        GLint previous = 0;
++        glGetIntegerv(GL_READ_FRAMEBUFFER_BINDING, &previous);
++        GLuint fbo = 0;
++        glGenFramebuffers(1, &fbo);
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, fbo);
++        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, textureObject->id(), 0);
++        if (glCheckFramebufferStatus(GL_READ_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE)
++        {
++            std::vector<unsigned char> raw(static_cast<size_t>(width) * height * 4);
++            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, raw.data());
++            // GL rows run bottom-up; the companion wants them top-down.
++            std::vector<unsigned char> pixels(raw.size());
++            const size_t row = static_cast<size_t>(width) * 4;
++            for (int y = 0; y < height; ++y)
++                std::memcpy(pixels.data() + static_cast<size_t>(height - 1 - y) * row, raw.data() + y * row, row);
++            post(width, height, capture, pixels);
++        }
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, previous);
++        glDeleteFramebuffers(1, &fbo);
++#endif
++        sInFlight.store(false);
++    }
++}
++
++namespace
++{
++    osg::ref_ptr<MWRender::CompanionMap3DRenderToTexture> sNode;
++    osg::ref_ptr<osg::Group> sRoot;
++    int sNodeWidth = 0;
++    int sNodeHeight = 0;
++    bool sDrewLastFrame = false;
++    long long sLastRenderMs = 0;
++    long long sInFlightSinceMs = 0;
++    int sSequence = 0;
++
++    // What the last picture showed, to tell whether a new one is needed.
++    bool sLastValid = false;
++    osg::Vec3f sLastFocus;
++    float sLastDistance = 0.f;
++    float sLastYaw = 0.f;
++    const void* sLastCell = nullptr;
++
++    // A removed camera may still be drawing on the draw thread, and its read-back callback points at
++    // the node, so a removed node is kept alive for a while before it is let go.
++    struct Retired
++    {
++        osg::ref_ptr<MWRender::CompanionMap3DRenderToTexture> mNode;
++        long long mSinceMs;
++    };
++    std::vector<Retired> sRetired;
++
++    void purgeRetired(long long now)
++    {
++        sRetired.erase(std::remove_if(sRetired.begin(), sRetired.end(),
++                           [now](const Retired& r) { return now - r.mSinceMs > 2000; }),
++            sRetired.end());
++    }
++
++    void removeNode()
++    {
++        if (sNode && sRoot)
++        {
++            sNode->setNodeMask(0);
++            sRoot->removeChild(sNode);
++        }
++        if (sNode)
++            sRetired.push_back({ sNode, nowMs() });
++        sNode = nullptr;
++        sRoot = nullptr;
++        sNodeWidth = sNodeHeight = 0;
++        sDrewLastFrame = false;
++    }
++
++    bool ensureNode(MWRender::RenderingManager* rendering, int width, int height)
++    {
++        if (sNode && sNodeWidth == width && sNodeHeight == height)
++            return true;
++        removeNode();
++        osg::Group* root = rendering->getCompanionRootNode();
++        if (root == nullptr)
++            return false;
++        SceneUtil::FindByNameVisitor find("Scene Root");
++        root->accept(find);
++        if (find.mFoundNode == nullptr)
++            return false;
++        sNode = new MWRender::CompanionMap3DRenderToTexture(find.mFoundNode, width, height);
++        sRoot = root;
++        root->addChild(sNode);
++        sNodeWidth = width;
++        sNodeHeight = height;
++        sLastValid = false;
++        return true;
++    }
++
++    float parseFloat(const std::string& s, float fallback)
++    {
++        if (s.empty())
++            return fallback;
++        char* end = nullptr;
++        const float v = std::strtof(s.c_str(), &end);
++        return (end == s.c_str() || !std::isfinite(v)) ? fallback : v;
++    }
++}
++
++/// "view:<on>,<distance>,<yawDegrees>,<panX>,<panY>,<width>,<height>" sets everything at once;
++/// "refresh" draws a new picture now; "off" stops drawing and frees the camera.
++extern "C" void companionMap3DCommand(const char* args)
++{
++    const std::string a = args != nullptr ? args : "";
++    if (a.rfind("view:", 0) == 0)
++    {
++        std::vector<std::string> fields;
++        size_t start = 5;
++        while (start <= a.size())
++        {
++            const size_t comma = a.find(',', start);
++            fields.push_back(a.substr(start, comma == std::string::npos ? std::string::npos : comma - start));
++            if (comma == std::string::npos)
++                break;
++            start = comma + 1;
++        }
++        auto field = [&](size_t i) { return i < fields.size() ? fields[i] : std::string(); };
++        sWanted.mOn = field(0) == "1";
++        sWanted.mDistance = std::clamp(parseFloat(field(1), 3000.f), 300.f, 40000.f);
++        sWanted.mYaw = parseFloat(field(2), 0.f);
++        sWanted.mPanX = parseFloat(field(3), 0.f);
++        sWanted.mPanY = parseFloat(field(4), 0.f);
++        sWanted.mWidth = std::clamp(static_cast<int>(parseFloat(field(5), 480.f)), 64, kMaxSize);
++        sWanted.mHeight = std::clamp(static_cast<int>(parseFloat(field(6), 360.f)), 64, kMaxSize);
++        sWanted.mForce = true;
++    }
++    else if (a == "refresh")
++        sWanted.mForce = true;
++    else if (a == "off")
++        sWanted.mOn = false;
++}
++
++/// Runs once a frame on the engine thread, before the frame is drawn.
++extern "C" void companionMap3DFrame()
++{
++    if (!sRetired.empty())
++        purgeRetired(nowMs());
++
++    // The camera draws in the one frame it was switched on for.
++    if (sDrewLastFrame && sNode)
++    {
++        sNode->setNodeMask(0);
++        sDrewLastFrame = false;
++    }
++
++    if (!sWanted.mOn)
++    {
++        if (sNode)
++            removeNode();
++        return;
++    }
++
++    MWBase::World* world = MWBase::Environment::get().getWorld();
++    MWBase::StateManager* state = MWBase::Environment::get().getStateManager();
++    if (world == nullptr || state == nullptr || state->getState() != MWBase::StateManager::State_Running)
++        return;
++    MWWorld::Ptr player = world->getPlayerPtr();
++    if (player.isEmpty() || player.getCell() == nullptr)
++        return;
++    MWRender::RenderingManager* rendering = world->getRenderingManager();
++    if (rendering == nullptr)
++        return;
++
++    const long long now = nowMs();
++    if (sInFlight.load())
++    {
++        if (now - sInFlightSinceMs < kInFlightTimeoutMs)
++            return;
++        sInFlight.store(false);
++    }
++    if (now - sLastRenderMs < kMinIntervalMs)
++        return;
++
++    const osg::Vec3f playerPos = player.getRefData().getPosition().asVec3();
++    const osg::Vec3f focus(playerPos.x() + sWanted.mPanX, playerPos.y() + sWanted.mPanY, playerPos.z());
++    const void* cell = player.getCell();
++    const bool interior = !player.getCell()->isExterior();
++
++    const float moveBeforeUpdate = std::max(16.f, sWanted.mDistance * 0.01f);
++    const bool changed = !sLastValid || sWanted.mForce || cell != sLastCell
++        || (focus - sLastFocus).length2() > moveBeforeUpdate * moveBeforeUpdate
++        || std::abs(sWanted.mDistance - sLastDistance) > 1.f || std::abs(sWanted.mYaw - sLastYaw) > 0.5f;
++    if (!changed)
++        return;
++
++    if (!ensureNode(rendering, sWanted.mWidth, sWanted.mHeight))
++        return;
++
++    sNode->setView(focus, sWanted.mDistance, sWanted.mYaw);
++    {
++        std::lock_guard<std::mutex> lock(sNode->mCaptureMutex);
++        sNode->mCapture.mViewProjection = sNode->getPlainViewProjection();
++        sNode->mCapture.mFocus = focus;
++        sNode->mCapture.mDistance = sWanted.mDistance;
++        sNode->mCapture.mYaw = sWanted.mYaw;
++        sNode->mCapture.mInterior = interior;
++        sNode->mCapture.mSequence = ++sSequence;
++        sNode->mArmed = true;
++    }
++    sNode->setNodeMask(MWRender::Mask_RenderToTexture);
++    sDrewLastFrame = true;
++    sInFlight.store(true);
++    sInFlightSinceMs = now;
++    sLastRenderMs = now;
++
++    sLastValid = true;
++    sLastFocus = focus;
++    sLastDistance = sWanted.mDistance;
++    sLastYaw = sWanted.mYaw;
++    sLastCell = cell;
++    sWanted.mForce = false;
++}
+diff --git a/apps/openmw/mwrender/renderingmanager.hpp b/apps/openmw/mwrender/renderingmanager.hpp
+index 436ccff..00fdf10 100644
+--- a/apps/openmw/mwrender/renderingmanager.hpp
++++ b/apps/openmw/mwrender/renderingmanager.hpp
+@@ -131,6 +131,9 @@ namespace MWRender
+ 
+         SceneUtil::LightManager* getLightRoot();
+ 
++        /// OpenMW-DS: the root the viewer draws, for the companion's 3D map camera.
++        osg::Group* getCompanionRootNode() { return mRootNode.get(); }
++
+         void setNightEyeFactor(float factor);
+ 
+         void setAmbientColour(const osg::Vec4f& colour);

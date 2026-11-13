@@ -123,4 +123,18 @@ class Map3DMathTest {
         assertEquals(640 to 320, Map3DMath.pictureSize(1280, 640, 640))
         assertEquals(64 to 64, Map3DMath.pictureSize(10, 10, 640))
     }
+    @Test fun interiorsAndLoadingKeepTheFlatMap() {
+        assertTrue(Map3DMath.shouldRender(true, true, true))
+        org.junit.Assert.assertFalse(Map3DMath.shouldRender(true, true, false))
+        org.junit.Assert.assertFalse(Map3DMath.shouldRender(true, false, true))
+        org.junit.Assert.assertFalse(Map3DMath.shouldRender(false, true, true))
+    }
+
+    @Test fun doorsUseTheirOwnElevationAndOldPayloadsKeepAFallback() {
+        val m = engineMatrix(0.0, 0.0, 0.0, 2400.0, 0.0, 1.5)
+        val ground = Map3DMath.project(m, 0f, 0f, Map3DMath.markerHeight(0f, 300f))!!
+        val high = Map3DMath.project(m, 0f, 0f, Map3DMath.markerHeight(300f, 0f))!!
+        assertTrue(high.v < ground.v)
+        assertEquals(42f, Map3DMath.markerHeight(null, 42f), 0f)
+    }
 }

@@ -1,0 +1,16 @@
+{
+  "format": 1,
+  "baseApkSha256": "1274a8b7737aafbcae7a44b4c48880cc3ba302ed314b0b78d1aa7ffc0f9bfe79",
+  "nativeSha256": "75ed283ff7dc706a319bb0e581bbcb37dc37c4d38969b6e582c4627d30c64228",
+  "nativeBytes": 126077504,
+  "rawNativeSha256": "82095011de18ca5e82d9dac9d6bb845c09ac666d2b91dbc3f7a36bcaca590125",
+  "nativeSourceCommit": "3b8b6c813287d84d54177f7dec90bf0dde0f1af3",
+  "abi": "arm64-v8a",
+  "sourceSnapshots": {
+    "androidmain.cpp": "a2353ac0ee0ea6aa1d4b96e7f0baa6978ed261bfc4d850296c2dbf1edaffe473",
+    "companionmap3d.cpp": "0aad7eb7d7ef5ede22cf7cc425e830b42612d8e46e625bffda29bc141fc80ee2"
+  },
+  "checks": "DT_NEEDED and original JNI exports unchanged; no unresolved symbols against pinned APK/system dependencies",
+  "nativePatchBase": "259a2560e8567b8f371c870faa3f31030f08aa73",
+  "nativePatchSha256": "32ea748c3794c20a1bd6a40657469f8d67e006ceac2f2105c4092d23feda8aae"
+}

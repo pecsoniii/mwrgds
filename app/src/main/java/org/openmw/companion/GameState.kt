@@ -1268,7 +1268,9 @@ data class TopicInfo(
 data class DoorMarker(
     val worldX: Float,
     val worldY: Float,
-    val name: String
+    val name: String,
+    /** Actual door elevation; null for older companion exports. */
+    val worldZ: Float? = null
 )
 
 /** Live state of the two engine-side Developer Tools toggles (god mode / player collision), from

@@ -133,12 +133,32 @@ class UserManageAssets(val context: Context) {
         IdentityMarker.write(context)
     }
 
+    private fun refreshCompanionScript() {
+        try {
+            val bytes = context.assets.open("companion/scripts/companion/companion.lua").use { it.readBytes() }
+            val hash = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+                .joinToString("") { "%02x".format(it) }
+            val stamp = File(context.filesDir, "rgds-companion-script.sha256")
+            val target = File("${Constants.USER_FILE_STORAGE}/OpenMW/Mods/companion/scripts/companion/companion.lua")
+            if (target.isFile && stamp.exists() && stamp.readText().trim() == hash) return
+            target.parentFile?.mkdirs()
+            val temporary = File(target.parentFile, "companion.lua.update")
+            temporary.writeBytes(bytes)
+            java.nio.file.Files.move(temporary.toPath(), target.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            stamp.writeText(hash)
+            Log.d("ManageAssets", "Updated bundled companion script: $hash")
+        } catch (e: Exception) {
+            Log.e("ManageAssets", "Companion script refresh failed; will retry on next start", e)
+        }
+    }
+
     fun resourcePrepare() {
         val stampFile = File(Constants.VERSION_STAMP)
         val currentStamp = if (stampFile.exists()) stampFile.readText().trim() else ""
         val targetStamp = "rgds-perf1-engine-1.4.6-" + BuildConfig.RANDOMIZER
 
         if (currentStamp == targetStamp) {
+            refreshCompanionScript()
             Log.d("ManageAssets", "Version match (stamp: $currentStamp), skipping resource update.")
             return
         }
@@ -154,6 +174,7 @@ class UserManageAssets(val context: Context) {
         // Write the new stamp after successful copy
         try {
             stampFile.writeText(targetStamp)
+            refreshCompanionScript()
             patchShaders()
             Log.d("ManageAssets", "Successfully updated resources and stamp: $targetStamp")
         } catch (e: Exception) {

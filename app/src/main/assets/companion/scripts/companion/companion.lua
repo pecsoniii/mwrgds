@@ -1964,8 +1964,8 @@ local function exportDoorMarkers()
                     end
                 end)
                 local pos = door.position
-                parts[#parts + 1] = string.format('{"x":%.1f,"y":%.1f,"name":"%s"}',
-                    pos.x, pos.y, jsonEscape(name))
+                parts[#parts + 1] = string.format('{"x":%.1f,"y":%.1f,"z":%.1f,"name":"%s"}',
+                    pos.x, pos.y, pos.z, jsonEscape(name))
             end
         end
     end)

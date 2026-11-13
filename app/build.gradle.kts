@@ -54,12 +54,17 @@ val generatedAssetsDir = layout.buildDirectory.dir("generated_assets")
 // the NDK. Invoke with -PprebuiltEngineApk=<path-to-apk>.
 val prebuiltEngineApk = providers.gradleProperty("prebuiltEngineApk").orNull?.let { file(it) }
 val prebuiltEngineMode = prebuiltEngineApk != null
+// Keep the stock APK pinned; replace only the explicitly verified custom engine library.
+val map3dNativeLibrary = providers.gradleProperty("map3dNativeLibrary").orNull?.let { file(it) }
+val map3dNativeSha256 = providers.gradleProperty("map3dNativeSha256").orNull
 val prebuiltEngineDir = layout.buildDirectory.dir("prebuilt-engine")
 val prebuiltEngineAssetsDir = prebuiltEngineDir.map { it.dir("assets") }
 val prebuiltEngineJniDir = prebuiltEngineDir.map { it.dir("jniLibs") }
 val extractPrebuiltEngine = tasks.register("extractPrebuiltEngine") {
     val apk = prebuiltEngineApk
     if (apk != null) inputs.file(apk)
+    if (map3dNativeLibrary != null) inputs.file(map3dNativeLibrary)
+    inputs.property("map3dNativeSha256", map3dNativeSha256.orEmpty())
     outputs.dir(prebuiltEngineDir)
     doLast {
         require(apk != null && apk.isFile) {
@@ -77,6 +82,24 @@ val extractPrebuiltEngine = tasks.register("extractPrebuiltEngine") {
         val engineHash = digest.digest().joinToString("") { "%02x".format(it) }
         require(engineHash == "1274a8b7737aafbcae7a44b4c48880cc3ba302ed314b0b78d1aa7ffc0f9bfe79") {
             "This RG DS performance build requires the pinned SergeShack v1.4.6 engine APK"
+        }
+        val native = requireNotNull(map3dNativeLibrary) {
+            "This map build requires -Pmap3dNativeLibrary and -Pmap3dNativeSha256; the stock engine has no 3D callback"
+        }
+        require(native.isFile && map3dNativeSha256?.matches(Regex("[0-9a-f]{64}")) == true) {
+            "Supply an existing arm64 engine library and its reviewed SHA-256"
+        }
+        val nativeDigest = MessageDigest.getInstance("SHA-256")
+        native.inputStream().use { input ->
+            val buffer = ByteArray(65536)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                nativeDigest.update(buffer, 0, count)
+            }
+        }
+        require(nativeDigest.digest().joinToString("") { "%02x".format(it) } == map3dNativeSha256) {
+            "3D engine SHA-256 mismatch; refusing to package an unverified library"
         }
         val root = prebuiltEngineDir.get().asFile
         root.deleteRecursively()
@@ -112,6 +135,7 @@ val extractPrebuiltEngine = tasks.register("extractPrebuiltEngine") {
                 }
             }
         }
+        native.copyTo(jniRoot.resolve("arm64-v8a/libopenmw.so"), overwrite = true)
     }
 }
 val generateOpenMWAssets = tasks.register("generateOpenMWAssets") {
@@ -174,7 +198,7 @@ android {
         versionCode = derivedVersionCode
         versionName = providers.exec {
             commandLine("git", "rev-parse", "--short", "HEAD")
-        }.standardOutput.asText.get().trim() + "-rgds-map3d1"
+        }.standardOutput.asText.get().trim() + "-rgds-map3d-integration1"
 
         // Stable legacy asset revision; the RG DS resource stamp also includes the performance release.
         buildConfigField("int", "RANDOMIZER", "564")

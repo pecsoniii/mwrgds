@@ -13981,7 +13981,7 @@ internal fun HudMapLayer(
     modifier: Modifier = Modifier
 ) {
     // RG DS: the engine's 3D view of the place instead of the flat local map.
-    if (RgdsControls.map3d) {
+    if (Map3DMath.shouldRender(RgdsControls.map3d, state.hasData, state.cellIsExterior)) {
         HudMap3DLayer(state, splashVisible, zoom, onLook, modifier)
         return
     }
@@ -14346,7 +14346,7 @@ private fun HudMap3DLayer(
                         val w = size.width.toFloat(); val h = size.height.toFloat()
                         val hitR = minOf(w, h) * 0.06f
                         val hit = if (p == null) null else doorMarkers
-                            .mapNotNull { m -> screenOf(p, m.worldX, m.worldY, p.focusZ, w, h)?.let { m to it } }
+                            .mapNotNull { m -> screenOf(p, m.worldX, m.worldY, Map3DMath.markerHeight(m.worldZ, p.focusZ), w, h)?.let { m to it } }
                             .filter { (_, o) -> (o - tap).getDistance() <= hitR }
                             .minByOrNull { (_, o) -> (o - tap).getDistance() }
                         when {
@@ -14369,10 +14369,10 @@ private fun HudMap3DLayer(
                 dstSize = IntSize(size.width.toInt(), size.height.toInt()),
             )
 
-            // Door markers, at the height the picture was drawn from.
+            // Project each door at its own elevation, including entrances above/below the player.
             val half = size.minDimension * 0.022f
             doorMarkers.forEach { m ->
-                val o = screenOf(p, m.worldX, m.worldY, p.focusZ, size.width, size.height) ?: return@forEach
+                val o = screenOf(p, m.worldX, m.worldY, Map3DMath.markerHeight(m.worldZ, p.focusZ), size.width, size.height) ?: return@forEach
                 if (o.x < -half || o.x > size.width + half || o.y < -half || o.y > size.height + half) return@forEach
                 val sel = selectedMarker == m
                 val topLeft = Offset(o.x - half, o.y - half)
@@ -14409,7 +14409,7 @@ private fun HudMap3DLayer(
 
         if (boxSize.width > 0 && boxSize.height > 0) selectedMarker?.let { marker ->
             val p = picture ?: return@let
-            val o = screenOf(p, marker.worldX, marker.worldY, p.focusZ, boxSize.width.toFloat(), boxSize.height.toFloat())
+            val o = screenOf(p, marker.worldX, marker.worldY, Map3DMath.markerHeight(marker.worldZ, p.focusZ), boxSize.width.toFloat(), boxSize.height.toFloat())
                 ?: return@let
             Box(
                 Modifier

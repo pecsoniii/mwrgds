@@ -1191,7 +1191,8 @@ object LogParser {
         DoorMarker(
             worldX = o.getDouble("x").toFloat(),
             worldY = o.getDouble("y").toFloat(),
-            name = o.optString("name", "")
+            name = o.optString("name", ""),
+            worldZ = o.optDouble("z", Double.NaN).toFloat().takeIf { it.isFinite() }
         )
     } catch (e: Exception) {
         null

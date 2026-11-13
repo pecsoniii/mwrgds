@@ -10,6 +10,13 @@ data class Map3DPoint(val u: Float, val v: Float)
  * The engine side is companionmap3d.cpp.
  */
 object Map3DMath {
+    /** Until a ceiling cutaway is verified, indoor cells retain the existing flat map. */
+    fun shouldRender(enabled: Boolean, hasData: Boolean, exterior: Boolean): Boolean =
+        enabled && hasData && exterior
+
+    /** Old marker payloads lack elevation; only those fall back to the camera focus height. */
+    fun markerHeight(worldZ: Float?, focusZ: Float): Float = worldZ ?: focusZ
+
     /**
      * Where a world position shows in a picture made with [matrix], or null when it is behind the
      * camera. [matrix] is the engine's view x projection as OSG keeps it: row-major, taking a world
