@@ -8,7 +8,7 @@ Updated 2026-11-13. RG DS integration is installed and checked; devices released
 3. Correct marker elevations, handle interiors and update bundled Lua safely: done. Exterior-only 3D with flat interior fallback; optional door worldZ exported, parsed and used for drawing/hit/popup projection. Lua updates independently of the engine-resource stamp, including missing-file recovery.
 4. Build, install, test controller/map behavior and preserve saves/config: done with limits below.
 5. Establish Classic wireless access and prepare Modern Morrow UI implementation boundaries: done. Full Classic companion port and Modern Morrow inventory/journal redesign are not implemented by this integration.
-6. Commit source, retain rollback and hand off: final source commit is the HEAD of codex/rgds-map3d-handoff; see git log. Root worktree contains this mirrored handoff.
+6. Commit source, retain rollback and hand off: integration source commit is 3a3aec225526eecd1c1e5f7869243598e918ac11 on codex/rgds-map3d-handoff (later commits may update only this handoff). Root worktree contains this mirrored handoff.
 
 ## Locations and ownership
 - Integration source: D:/RGDS/OpenMW-DS-map3d-handoff, branch codex/rgds-map3d-handoff; prototype snapshot commit 8cf156f, based on ammo-hold fix a691d15.
@@ -55,3 +55,6 @@ Updated 2026-11-13. RG DS integration is installed and checked; devices released
 ## Delegation and continuation
 Owner explicitly requested lower-cost orchestration. GPT-6 Luna handled independent integration review (found/fixed missing-Lua recovery), build/rollback and wireless audit, and Classic UI architecture assessment. Root handled native packaging, Android build/install, device testing, preservation and integration. No agent touched Quest, merged, pushed or modified Claude's original prototype.
 Use native/README.md and tools/map3d-engine.json for provenance; tools/build-map3d.ps1 for pinned-input rebuild. New port/UI work should use another isolated worktree and coordinate device ownership before changing the QoL session's configuration.
+
+## Transfer to Claude
+C:/Users/SunshineDaydream/Documents/RGDS-update-20261113/claude-map3d-followup.patch exports the follow-up from snapshot 8cf156f. git apply --check passed against the original dirty Claude prototype; no patch was applied there. Re-check applicability if that prototype changes. The preserved native patch has original diff context whitespace; other staged source/docs pass whitespace checks with CRLF endings recognized.
