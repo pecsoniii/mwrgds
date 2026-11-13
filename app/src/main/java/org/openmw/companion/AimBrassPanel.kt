@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.delay
+import androidx.compose.ui.window.PopupProperties
 import kotlin.math.roundToInt
 
 /*
@@ -108,10 +108,6 @@ internal fun AimBrassPanel(
     var touched by remember { mutableStateOf(false) }
     var settingsOpen by remember { mutableStateOf(false) }
     var ammoOpen by remember { mutableStateOf(false) }
-    var hint by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(hint) { if (hint != null) { delay(2500); hint = null } }
-    val ranged = state.ammo != null
-    LaunchedEffect(ranged) { if (!ranged) ammoOpen = false }
     val font = MwDisplay
 
     Box(modifier.fillMaxSize().background(Iron)) {
@@ -163,14 +159,12 @@ internal fun AimBrassPanel(
         ) { RgdsControls.zoomMap(-1) }
 
         BrassRound(HourglassIcon, "WAIT", 18.dp, 132.dp, size = 56.dp) { RgdsControls.restOrWait() }
-        // Weapon: tap readies or lowers it; with a bow or crossbow out it shows the ammo left, and a
-        // long-press opens the two ammo favourites.
+        // Ammo stays selectable before loading a bow and after the last arrow is fired.
+        // state.ammo reports only a loaded, compatible stack; it cannot gate this picker.
         BrassRound(
             SwordIcon, "WEAPON", 7.dp, 212.dp, active = RgdsControls.weaponReadied,
             chip = state.ammo?.let { "x${it.count}" },
-            onLongClick = {
-                if (ranged) ammoOpen = !ammoOpen else hint = "Equip a bow or crossbow to pick ammo"
-            }
+            onLongClick = { ammoOpen = !ammoOpen }
         ) { RgdsControls.tap(34) }
         BrassRound(SparkIcon, "SPELL", 72.dp, 234.dp, active = RgdsControls.spellReadied, accent = Verdigris) {
             if (state.selectedSpell.isNullOrBlank()) onSelectTab(Tab.MAGIC) else RgdsControls.tap(46)
@@ -213,13 +207,6 @@ internal fun AimBrassPanel(
         BrassRound(JumpIcon, "JUMP", 434.dp, 346.dp, chip = if (RgdsControls.faceLook) "L2" else null) { RgdsControls.tap(33) }
         BrassAttack(510.dp, 284.dp)
 
-        hint?.let {
-            Text(
-                it, color = IronText, fontSize = 12.sp, fontFamily = font, textAlign = TextAlign.Center,
-                modifier = Modifier.offset(120.dp, 160.dp).width(400.dp)
-                    .background(IronDeep.copy(alpha = 0.85f), RoundedCornerShape(8.dp)).padding(6.dp)
-            )
-        }
         if (ammoOpen) AmmoStrip(state, onClose = { ammoOpen = false })
         if (settingsOpen) BrassSettings(onClose = { settingsOpen = false })
     }
@@ -284,7 +271,10 @@ private fun AmmoStrip(state: GameState, onClose: () -> Unit) {
                     }
                     DropdownMenu(
                         expanded = picking, onDismissRequest = { picking = false },
-                        modifier = Modifier.background(IronSolid)
+                        modifier = Modifier.background(IronSolid),
+                        // The game owns controller focus on the other display. Touch-only ammo
+                        // choices must not move that focus to the companion's window.
+                        properties = PopupProperties(focusable = false)
                     ) {
                         if (owned.isEmpty()) {
                             DropdownMenuItem(
@@ -527,7 +517,7 @@ private fun BrassSettings(onClose: () -> Unit) {
                 color = IronMuted, fontSize = 12.sp, fontFamily = MwDisplay
             )
             Text(
-                "Hold WEAPON with a bow or crossbow out for your two ammo favourites. R1 attacks on every tab; Select opens Rest/Wait.",
+                "Hold WEAPON for your two ammo favourites; hold a slot to choose arrows or bolts. R2 attacks; Select opens Rest/Wait.",
                 color = IronMuted, fontSize = 12.sp, fontFamily = MwDisplay
             )
         }
