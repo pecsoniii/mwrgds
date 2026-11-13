@@ -1,8 +1,9 @@
 import com.android.build.gradle.tasks.MergeSourceSetFolders
 import org.gradle.kotlin.dsl.coreLibraryDesugaring
+import java.security.MessageDigest
 import java.util.Properties
-import java.util.Random
 import java.io.FileInputStream
+import java.util.zip.ZipFile
 
 plugins {
     alias(libs.plugins.android.application)
@@ -25,7 +26,7 @@ if (keystorePropertiesFile.exists()) {
 // render time, and the GitHub release TAG carries one (`v0.8.0`), so anything comparing the two
 // must strip it. Bump this one line per release.
 // ---------------------------------------------------------------------------------------------
-val releaseVersion = "1.3.0"
+val releaseVersion = "1.4.6"
 
 // Derive the OS-facing versionCode from `releaseVersion` rather than hand-maintaining a second
 // number. It used to be a hardcoded `2` that never moved, which meant the package manager had no
@@ -48,6 +49,71 @@ val derivedVersionCode = run {
 }
 
 val generatedAssetsDir = layout.buildDirectory.dir("generated_assets")
+// Optional UI-only iteration path: package the already-built engine libraries and assets from a
+// known-good APK, so Kotlin/Compose changes can be compiled without rebuilding OpenMW or installing
+// the NDK. Invoke with -PprebuiltEngineApk=<path-to-apk>.
+val prebuiltEngineApk = providers.gradleProperty("prebuiltEngineApk").orNull?.let { file(it) }
+val prebuiltEngineMode = prebuiltEngineApk != null
+val prebuiltEngineDir = layout.buildDirectory.dir("prebuilt-engine")
+val prebuiltEngineAssetsDir = prebuiltEngineDir.map { it.dir("assets") }
+val prebuiltEngineJniDir = prebuiltEngineDir.map { it.dir("jniLibs") }
+val extractPrebuiltEngine = tasks.register("extractPrebuiltEngine") {
+    val apk = prebuiltEngineApk
+    if (apk != null) inputs.file(apk)
+    outputs.dir(prebuiltEngineDir)
+    doLast {
+        require(apk != null && apk.isFile) {
+            "-PprebuiltEngineApk must point to an existing OpenMW-DS APK"
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        apk.inputStream().use { input ->
+            val buffer = ByteArray(65536)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                digest.update(buffer, 0, count)
+            }
+        }
+        val engineHash = digest.digest().joinToString("") { "%02x".format(it) }
+        require(engineHash == "1274a8b7737aafbcae7a44b4c48880cc3ba302ed314b0b78d1aa7ffc0f9bfe79") {
+            "This RG DS performance build requires the pinned SergeShack v1.4.6 engine APK"
+        }
+        val root = prebuiltEngineDir.get().asFile
+        root.deleteRecursively()
+        val jniRoot = prebuiltEngineJniDir.get().asFile
+        val assetsRoot = prebuiltEngineAssetsDir.get().asFile
+        ZipFile(apk).use { zip ->
+            val entries = zip.entries()
+            while (entries.hasMoreElements()) {
+                val entry = entries.nextElement()
+                val targetRoot: File
+                val relativePath: String
+                when {
+                    entry.name.startsWith("lib/arm64-v8a/") -> {
+                        targetRoot = jniRoot.resolve("arm64-v8a")
+                        relativePath = entry.name.removePrefix("lib/arm64-v8a/")
+                    }
+                    entry.name.startsWith("assets/libopenmw/") -> {
+                        targetRoot = assetsRoot
+                        relativePath = entry.name.removePrefix("assets/")
+                    }
+                    else -> continue
+                }
+                val targetPath = targetRoot.toPath().resolve(relativePath).normalize()
+                require(targetPath.startsWith(targetRoot.toPath().normalize())) {
+                    "Unsafe path in prebuilt APK: ${entry.name}"
+                }
+                val target = targetPath.toFile()
+                if (entry.isDirectory) target.mkdirs() else {
+                    target.parentFile.mkdirs()
+                    zip.getInputStream(entry).use { input ->
+                        target.outputStream().use { output -> input.copyTo(output) }
+                    }
+                }
+            }
+        }
+    }
+}
 val generateOpenMWAssets = tasks.register("generateOpenMWAssets") {
     outputs.dir(generatedAssetsDir)
     doLast {
@@ -74,7 +140,7 @@ val restorePinnedLibs = tasks.register("restorePinnedLibs") {
 // Run at configuration time, before any tasks execute
 val generatedLibopenmwDir = layout.buildDirectory.dir("generated_assets/libopenmw")
 val assetsDir = generatedLibopenmwDir.get().asFile
-if (!assetsDir.exists() || assetsDir.listFiles().isNullOrEmpty()) {
+if (!prebuiltEngineMode && (!assetsDir.exists() || assetsDir.listFiles().isNullOrEmpty())) {
     fileTree(".cxx") {
         include("**/openmw-stamp/openmw-install")
     }.forEach {
@@ -86,7 +152,7 @@ if (!assetsDir.exists() || assetsDir.listFiles().isNullOrEmpty()) {
 android {
     namespace = "org.openmw"
     compileSdk = 37
-    ndkVersion = "29.0.14206865"
+    if (!prebuiltEngineMode) ndkVersion = "29.0.14206865"
     buildToolsVersion = "36.0.0"
 
     signingConfigs {
@@ -99,7 +165,8 @@ android {
     }
 
     defaultConfig {
-        applicationId = "org.openmw.ds"
+        applicationId = if (prebuiltEngineMode) "org.openmw.ds.rgds" else "org.openmw.ds"
+        if (prebuiltEngineMode) resValue("string", "app_name", "OpenMW-DS RGDS")
         minSdk = 26
 
         //noinspection OldTargetApi
@@ -107,9 +174,10 @@ android {
         versionCode = derivedVersionCode
         versionName = providers.exec {
             commandLine("git", "rev-parse", "--short", "HEAD")
-        }.standardOutput.asText.get().trim()
+        }.standardOutput.asText.get().trim() + "-rgds-hud1"
 
-        buildConfigField("int", "RANDOMIZER", "${Random().nextInt(999).let { if (it < 0) -it else it }}")
+        // Stable legacy asset revision; the RG DS resource stamp also includes the performance release.
+        buildConfigField("int", "RANDOMIZER", "564")
 
         // Human-readable release label, separate from the git-hash `versionName` (which
         // stays as-is for crash-report precision). Bump `releaseVersion` at the top of this
@@ -118,20 +186,24 @@ android {
         buildConfigField("String", "RELEASE_VERSION", "\"$releaseVersion\"")
 
         ndk {
+            // Restrict packaged native dependencies to the engine's supported ABI, including
+            // the prebuilt-APK path. This declaration does not invoke or download the NDK.
             //noinspection ChromeOsAbiSupport
             abiFilters += listOf("arm64-v8a")
         }
 
-        @Suppress("UnstableApiUsage")
-        externalNativeBuild {
-            cmake {
-                val generatedAssetsPath =
-                    generatedAssetsDir.get().asFile.invariantSeparatorsPath
-                arguments(
-                    "-DANDROID_STL=c++_shared",
-                    "-DGENERATED_ASSETS_DIR=$generatedAssetsPath",
-                    "-DOPENMW_SRC=${project.findProperty("OPENMW_SRC") ?: ""}"
-                )
+        if (!prebuiltEngineMode) {
+            @Suppress("UnstableApiUsage")
+            externalNativeBuild {
+                cmake {
+                    val generatedAssetsPath =
+                        generatedAssetsDir.get().asFile.invariantSeparatorsPath
+                    arguments(
+                        "-DANDROID_STL=c++_shared",
+                        "-DGENERATED_ASSETS_DIR=$generatedAssetsPath",
+                        "-DOPENMW_SRC=${project.findProperty("OPENMW_SRC") ?: ""}"
+                    )
+                }
             }
         }
 
@@ -155,18 +227,27 @@ android {
             "release" -> "RelWithDebInfo"
             else -> cap   // debug -> Debug (names already line up)
         }
-        val cmakeTaskName = "buildCMake$cmakeBuildType[arm64-v8a]"
         tasks.withType<MergeSourceSetFolders>().configureEach {
-            if (name == "merge${cap}Assets") {
-                dependsOn(generateOpenMWAssets)
-                dependsOn(cmakeTaskName)
-            }
-            if (name == "merge${cap}JniLibFolders") {
-                dependsOn(restorePinnedLibs)
+            if (prebuiltEngineMode) {
+                if (name == "merge${cap}Assets" || name == "merge${cap}JniLibFolders") {
+                    dependsOn(extractPrebuiltEngine)
+                }
+            } else {
+                val cmakeTaskName = "buildCMake$cmakeBuildType[arm64-v8a]"
+                if (name == "merge${cap}Assets") {
+                    dependsOn(generateOpenMWAssets)
+                    dependsOn(cmakeTaskName)
+                }
+                if (name == "merge${cap}JniLibFolders") {
+                    dependsOn(restorePinnedLibs)
+                }
             }
         }
-        tasks.matching { it.name == cmakeTaskName }.configureEach {
-            finalizedBy(restorePinnedLibs)
+        if (!prebuiltEngineMode) {
+            val cmakeTaskName = "buildCMake$cmakeBuildType[arm64-v8a]"
+            tasks.matching { it.name == cmakeTaskName }.configureEach {
+                finalizedBy(restorePinnedLibs)
+            }
         }
         // Lint's release "vital" model/analysis tasks scan the merged assets — which
         // include our generated_assets srcDir (registered under `sourceSets` below via
@@ -177,21 +258,25 @@ android {
         // so this only ever bites the release variant. Declare the dependency explicitly
         // (Gradle's own recommended fix); it can't cycle since generateOpenMWAssets has no
         // lint dependency.
-        tasks.matching {
-            it.name.contains("lint", ignoreCase = true) && it.name.contains(cap)
-        }.configureEach {
-            dependsOn(generateOpenMWAssets)
+        if (!prebuiltEngineMode) {
+            tasks.matching {
+                it.name.contains("lint", ignoreCase = true) && it.name.contains(cap)
+            }.configureEach {
+                dependsOn(generateOpenMWAssets)
+            }
         }
     }
 
-    externalNativeBuild {
-        cmake {
-            path = file("src/main/cpp/CMakeLists.txt")
-            version = "3.22.1"
-            // Keep the macOS (Android Studio) and Linux (Docker) native caches
-            // apart so an IDE sync can never poison the container build.
-            if (System.getenv("ALPHA3_DOCKER") != null) {
-                buildStagingDirectory = file(".cxx-docker")
+    if (!prebuiltEngineMode) {
+        externalNativeBuild {
+            cmake {
+                path = file("src/main/cpp/CMakeLists.txt")
+                version = "3.22.1"
+                // Keep the macOS (Android Studio) and Linux (Docker) native caches
+                // apart so an IDE sync can never poison the container build.
+                if (System.getenv("ALPHA3_DOCKER") != null) {
+                    buildStagingDirectory = file(".cxx-docker")
+                }
             }
         }
     }
@@ -227,6 +312,7 @@ android {
         compose = true
         viewBinding = true
         buildConfig = true
+        resValues = true
     }
     composeOptions {
         kotlinCompilerExtensionVersion = "2.2.0"
@@ -242,8 +328,15 @@ android {
     }
     sourceSets {
         getByName("main") {
-            jniLibs.directories.add("src/main/jniLibs")
-            assets.directories.add(generatedAssetsDir.get().asFile.absolutePath)
+            if (prebuiltEngineMode) {
+                // The APK contains AndroidX/JNI helper libraries that are also present in
+                // src/main/jniLibs. Use the APK's complete ABI set alone in this build mode.
+                jniLibs.setSrcDirs(listOf(prebuiltEngineJniDir.get().asFile))
+                assets.directories.add(prebuiltEngineAssetsDir.get().asFile.absolutePath)
+            } else {
+                jniLibs.directories.add("src/main/jniLibs")
+                assets.directories.add(generatedAssetsDir.get().asFile.absolutePath)
+            }
         }
     }
     dependenciesInfo {

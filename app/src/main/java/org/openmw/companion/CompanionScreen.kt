@@ -178,6 +178,19 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.unit.Density
 import org.openmw.ui.theme.GAME_FONT_SIZE_SCALE
 import org.openmw.ui.theme.loadGameFont
+import org.openmw.ui.theme.CompanionPalette
+import org.openmw.ui.theme.MwStoneDark
+import org.openmw.ui.theme.MwStonePanel
+import org.openmw.ui.theme.MwSlotBg
+import org.openmw.ui.theme.MwSlotWorn
+import org.openmw.ui.theme.MwBronze
+import org.openmw.ui.theme.MwBronzeDark
+import org.openmw.ui.theme.MwBronzeLight
+import org.openmw.ui.theme.MwBone
+import org.openmw.ui.theme.MwBoneDim
+import org.openmw.ui.theme.MwBoneBright
+import org.openmw.ui.theme.MwBoneMuted
+import org.openmw.ui.theme.MwFloatStone
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -200,25 +213,25 @@ import kotlin.math.roundToInt
 /**
  * SECOND-SCREEN UI — Morrowind-styled.
  *
- *  Carved-stone panels, bronze frames, bone serif text.
+ *  Dark iron panels, restrained brass frames, Morrowind-style ivory text.
  *  Top stat bar (HP/MP/SP) floats over EVERY tab; bottom tab row switches
  *  the central panel. Inventory is a grid of framed slots (ready for icons)
  *  with a paper-doll placeholder beside it.
  */
 
-// ---- palette: warm stone & bronze ----
-private val StoneDark   = Color(0xFF15120D)   // deep warm background
-private val StonePanel  = Color(0xFF252017)   // raised panel fill
-private val SlotBg      = Color(0xFF1C1812)   // item slot fill
-private val SlotWorn    = Color(0xFF3A2E1A)   // equipped slot fill (bronze-tinted)
-private val Bronze      = Color(0xFF8C6D3F)   // frame border
-private val BronzeDark  = Color(0xFF5A4528)   // inner border / dividers
-private val BronzeLight = Color(0xFFC9A063)   // highlights, selected
-private val Bone        = Color(0xFFD8CBB0)   // primary text
-private val BoneDim     = Color(0xFF9A8C70)   // secondary text
-private val BoneBright  = Color(0xFFF2EEE3)   // item name, high prominence
-private val BoneMuted   = Color(0xFFBCAF96)   // item name, low prominence
-private val FloatStone  = Color(0xF02A2318)   // near-opaque stone for floating bars
+// Shared iron and brass roles; Aim owns the reference palette, not a separate color scheme.
+private val StoneDark = MwStoneDark
+private val StonePanel = MwStonePanel
+private val SlotBg = MwSlotBg
+private val SlotWorn = MwSlotWorn
+private val Bronze = MwBronze
+private val BronzeDark = MwBronzeDark
+private val BronzeLight = MwBronzeLight
+private val Bone = MwBone
+private val BoneDim = MwBoneDim
+private val BoneBright = MwBoneBright
+private val BoneMuted = MwBoneMuted
+private val FloatStone = MwFloatStone
 
 /*
  * Action-button roles for the service overlays (Repair / Training / Travel / Spell buying /
@@ -411,7 +424,7 @@ private object QuantityRequestState {
 // They are @Composable getters, not plain vals, so they can read [LocalGameFont] — this keeps all
 // ~320 call sites (`fontFamily = MwBody`) completely untouched. Safe because every usage sits in
 // composable scope: none appear in `remember {}`, a draw scope, or a default parameter value.
-private val MwDisplay: FontFamily
+internal val MwDisplay: FontFamily
     @Composable get() = LocalGameFont.current ?: FontFamily.Serif
 private val MwBody: FontFamily
     @Composable get() = LocalGameFont.current ?: FontFamily.Serif
@@ -478,7 +491,7 @@ private fun ProvideCompanionFont(content: @Composable () -> Unit) {
 // documented counterpart to BOTTOM_BAR_SPACE, which the tab pages still pad by.
 @Suppress("unused")
 private const val TOP_BAR_SPACE = 76
-private const val BOTTOM_BAR_SPACE = 76
+private const val BOTTOM_BAR_SPACE = 62
 // Unified row font size for the SPLIT-conversation bottom-screen surfaces: the dialogue
 // topics/services list plus the persuade / repair / travel popups. BOTTOM/TOP modes keep their
 // own smaller defaults. Bumped 16 -> 18 (Aug 20 2026) together with the panel widening below —
@@ -567,7 +580,9 @@ private val FAV_SLOT_CHIP_INSET = 4.dp
 //  does not need, and one-digit counts are the overwhelming majority.
 private val FAV_SLOT_CHIP_PAD = 5.dp * 2 + 1.dp * 2 + FAV_SLOT_CHIP_INSET + 3.dp
 
-private enum class Tab(val label: String) {
+// HUD is shown as "Field": the minimap with touch controls on it (FieldControls.kt). Aim is the
+// full-screen brass look surface (AimBrassPanel.kt). Both are gameplay tabs for RgdsControls.
+internal enum class Tab(val label: String) {
     INVENTORY("Inventory"), MAGIC("Spells"), HUD("HUD"), STATS("Stats"), JOURNAL("Journal")
 }
 
@@ -611,9 +626,14 @@ private val INV_CATEGORIES = listOf(
     // this moves exactly torches out of Misc and nothing else. Grouped with Tools because that
     // category is already "carried, not worn, has a use" (lockpicks/probes/apparatus/repair hammers)
     // rather than a vanilla grouping — vanilla itself files torches under Misc.
+    // Potions, Ingredients, Scrolls and Books are separate tabs (2026-11-09): the Lua already sends
+    // each as its own category ("scroll" for Book records with isScroll), so scrolls never show
+    // under Books. The barter screen keeps its engine-side Books/Consumables groups.
+    InvCategory("Potions",     setOf("potion")),
+    InvCategory("Ingredients", setOf("ingredient")),
+    InvCategory("Scrolls",     setOf("scroll")),
+    InvCategory("Books",       setOf("book")),
     InvCategory("Tools",   setOf("lockpick", "probe", "apparatus", "repair", "carried_left")),
-    InvCategory("Books",       setOf("book", "scroll")),
-    InvCategory("Consumables", setOf("potion", "ingredient")),
     // Keys out of Misc — the one sub-bucket of Misc worth its own tab: a playthrough accumulates
     // dozens, they are never sold or dropped, and they were previously buried among plates/cups/
     // gems. `key` comes from the Lua itemCategory (types.Miscellaneous record `isKey` flag) and,
@@ -638,7 +658,8 @@ private fun itemCategoryRank(category: String): Int = when (category) {
     "apparel", "amulet", "left_ring", "shirt", "pants", "skirt", "robe", "clothing" -> 2
     "consumable", "potion" -> 3
     "ingredient" -> 4
-    "book", "scroll" -> 6
+    "scroll" -> 5
+    "book" -> 6
     // ONE rank for the whole INV_CATEGORIES "Tools" set, so those items sort contiguously and ahead
     // of Misc. Previously they were scattered — carried_left 7, apparatus/repair fell through to the
     // misc `else` 8, lockpick 9, probe 11 — which interleaved tools with misc items in the flattened
@@ -1176,6 +1197,7 @@ fun CompanionScreen() {
 private fun CompanionScreenContent() {
     val state by GameStateRepository.state.collectAsState()
     var tab by remember { mutableStateOf(Tab.HUD) }
+    LaunchedEffect(tab) { RgdsControls.setGameplayTab(tab == Tab.HUD) }
     // Dismiss the item info popup when the tab changes so it never lingers over another screen.
     LaunchedEffect(tab) { ItemInfoPopupState.close() }
 
@@ -1351,7 +1373,10 @@ private fun CompanionScreenContent() {
         when (tab) {
             Tab.INVENTORY -> InventoryPanel(state)
             Tab.MAGIC -> MagicPanel(state)
-            Tab.HUD -> MapPanel(state, splashVisible = splashVisible, onSelectTab = { tab = it })
+            Tab.HUD -> AimBrassPanel(
+                state, splashVisible = splashVisible, onSelectTab = { tab = it },
+                modifier = Modifier.padding(bottom = BOTTOM_BAR_SPACE.dp)
+            )
             Tab.STATS -> StatsPanel(state, onSelectStat = { selectedStat = it })
             Tab.JOURNAL -> JournalPanel()
         }
@@ -2552,7 +2577,7 @@ private fun CombatBar(
             .fillMaxWidth()
             .height(height)
             .clip(RoundedCornerShape(2.dp))
-            .background(Color(0xFF0E0B07))
+            .background(CompanionPalette.Iron)
             .border(1.dp, BronzeDark, RoundedCornerShape(2.dp)),
         contentAlignment = Alignment.Center
     ) {
@@ -3042,7 +3067,7 @@ private fun DispositionBar(value: Int) {
                 .weight(1f)
                 .height(9.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(Color(0xFF0E0B07))
+                .background(CompanionPalette.Iron)
                 .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
         ) {
             Box(
@@ -3998,7 +4023,7 @@ private fun ItemInfoPopupCard(info: ItemInfo?, enchant: ItemEnchant?, edge: Popu
                                 .padding(horizontal = 8.dp)
                                 .height(9.dp)
                                 .clip(RoundedCornerShape(1.dp))
-                                .background(Color(0xFF0E0B07))
+                                .background(CompanionPalette.Iron)
                                 .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
                         ) {
                             Box(
@@ -4286,14 +4311,17 @@ private fun shelfBucket(category: String): Pair<Int, String> = when (category) {
     "armor", "helmet", "cuirass", "left_pauldron", "right_pauldron", "greaves", "boots",
         "left_gauntlet", "right_gauntlet", "shield" -> 1 to "Armor"
     "apparel", "amulet", "left_ring", "shirt", "pants", "skirt", "robe", "clothing" -> 2 to "Apparel"
-    "consumable", "potion", "ingredient" -> 3 to "Consumables"
-    "book", "scroll" -> 4 to "Books"
+    "potion" -> 3 to "Potions"
+    "ingredient" -> 4 to "Ingredients"
+    "consumable" -> 5 to "Consumables"   // barter's coarse group (the engine sends no finer one)
+    "scroll" -> 6 to "Scrolls"
+    "book" -> 7 to "Books"
     // apparatus/repair/carried_left(torches) were missing here and fell through to Misc, so the
     // shelves did NOT in fact mirror the Classic Tools tab they claim to. Same set as the
     // INV_CATEGORIES "Tools" bucket and the native companionBarterCategory "tools".
-    "tools", "lockpick", "probe", "apparatus", "repair", "carried_left" -> 5 to "Tools"
-    "key" -> 6 to "Keys"
-    else -> 7 to "Misc"
+    "tools", "lockpick", "probe", "apparatus", "repair", "carried_left" -> 8 to "Tools"
+    "key" -> 9 to "Keys"
+    else -> 10 to "Misc"
 }
 
 /** Group a flat item list into category shelves (bucket order; within a shelf, selected items
@@ -4439,7 +4467,7 @@ private fun ShelfScrollGutter(state: LazyListState, modifier: Modifier = Modifie
             .width(6.dp)
             .fillMaxHeight()
             .clip(RoundedCornerShape(3.dp))
-            .background(Color(0xFF0E0B07))
+            .background(CompanionPalette.Iron)
     ) {
         if (total > 0 && visible < total) {
             // Thumb: fraction of items visible, offset by the first visible index (approximate but
@@ -5648,7 +5676,7 @@ private val SPLIT_CELL_ICON = 44.dp                     // was 48
 
 // Each split-overlay column is its own boxed panel (dark fill, subtle border, rounded, padded);
 // the gap between the two boxes provides the visual separation (no divider line).
-private val SplitBoxBg = Color(0xFF1A1410)
+private val SplitBoxBg = CompanionPalette.IronSolid
 /**
  * Panel box for a SPLIT loot/barter column. Honours [LocalPanelOpacity] exactly like [mwPanel] —
  * these columns are the top screen's main DS panels, and they do NOT go through `mwPanel()` (they
@@ -7101,7 +7129,7 @@ private fun RepairRow(
                     .fillMaxWidth()
                     .height(6.dp)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(Color(0xFF0E0B07))
+                    .background(CompanionPalette.Iron)
                     .border(1.dp, BronzeDark, RoundedCornerShape(2.dp))
             ) {
                 Box(
@@ -7537,7 +7565,7 @@ private fun AlchemyStepButton(label: String, enabled: Boolean = true, onTap: () 
             .size(ALCHEMY_CONTROL_HEIGHT)
             .clip(RoundedCornerShape(3.dp))
             .background(SlotBg)
-            .border(1.dp, if (enabled) BronzeDark else Color(0xFF2A2118), RoundedCornerShape(3.dp))
+            .border(1.dp, if (enabled) BronzeDark else CompanionPalette.IronDeep, RoundedCornerShape(3.dp))
             .then(if (enabled) Modifier.clickable { onTap() } else Modifier),
         contentAlignment = Alignment.Center
     ) {
@@ -8414,7 +8442,7 @@ private object MapDsUiState {
 @Composable
 private fun Modifier.mapSurfaceFrame(): Modifier =
     this.dimTint(rememberMapDimAlpha())
-        .clip(RoundedCornerShape(3.dp)).background(Color(0xFF0B0906))
+        .clip(RoundedCornerShape(3.dp)).background(CompanionPalette.Iron)
         .border(2.dp, Bronze, RoundedCornerShape(3.dp))
 
 /**
@@ -9827,7 +9855,7 @@ private fun EffectActionButton(
                 when {
                     focused -> BronzeLight
                     enabled -> BronzeDark
-                    else -> Color(0xFF2A2118)
+                    else -> CompanionPalette.IronDeep
                 },
                 RoundedCornerShape(3.dp)
             )
@@ -9882,7 +9910,7 @@ private fun EffectStepButton(label: String, enabled: Boolean = true, onTap: () -
             .size(ENCHANT_CONTROL_HEIGHT)
             .clip(RoundedCornerShape(3.dp))
             .background(SlotBg)
-            .border(1.dp, if (enabled) BronzeDark else Color(0xFF2A2118), RoundedCornerShape(3.dp))
+            .border(1.dp, if (enabled) BronzeDark else CompanionPalette.IronDeep, RoundedCornerShape(3.dp))
             .then(if (enabled) Modifier.clickable { onTap() } else Modifier),
         contentAlignment = Alignment.Center
     ) {
@@ -11155,7 +11183,7 @@ private fun LevelUpOverlay(session: LevelUpSession) {
                             .padding(end = 6.dp)
                             .size(14.dp)
                             .clip(CircleShape)
-                            .background(if (filled) BronzeLight else Color(0xFF0E0B07))
+                            .background(if (filled) BronzeLight else CompanionPalette.Iron)
                             .border(1.dp, if (filled) BronzeLight else BronzeDark, CircleShape)
                     )
                 }
@@ -13722,86 +13750,58 @@ private fun SplashPanel() {
     }
 }
 
-/* ---- Top stat bar (floats over all tabs) ---- */
+/* ---- Active effects on the HUD tab ---- */
 
+/**
+ * The HUD tab's effects row, a line of its vitals plate: "Effects" and the beneficial / harmful
+ * counts ([EffectsSummary]); a tap opens the list of every active effect. It replaced the Field
+ * tab's top bar, its old home. Always shown (zero counts dim) so the plate keeps one size.
+ */
 @Composable
-private fun TopStatBar(state: GameState, modifier: Modifier = Modifier) {
+internal fun HudEffectsRow(state: GameState, labelColor: Color, labelWidth: Dp, modifier: Modifier = Modifier) {
     var effectsExpanded by remember { mutableStateOf(false) }
     LaunchedEffect(DropdownState.closeRequest) {
         if (DropdownState.closeRequest > 0) effectsExpanded = false
     }
     val hasEffects = state.activeEffects.isNotEmpty()
-    // Collected ONCE here, not inside the per-effect row: this bar recomposes at the stats tick
-    // rate (~10 Hz while playing), so a per-row collectAsState would restart one collector per
-    // effect per frame. Remembered for the same reason — effectTimersFlow() returns a new wrapper
-    // per call, and collectAsState keys on the instance.
+    LaunchedEffect(hasEffects) {
+        if (!hasEffects && effectsExpanded) { effectsExpanded = false; DropdownState.closeAll() }
+    }
+    // Collected once, not per row: this recomposes at the stats tick rate (~10 Hz while playing).
     val effectTimersFlow = remember { UiPreferences.effectTimersFlow() }
     val showEffectTimer by effectTimersFlow.collectAsState()
 
-    // The bar, wrapped so the effects dropdown can anchor to the BAR's own bottom-right corner
-    // instead of to the little "Effects" button — see the anchor box at the end of this Box.
     Box(modifier) {
-    Row(
-        modifier = Modifier
-            .fillMaxSize()
-            .clip(RoundedCornerShape(3.dp))
-            .background(FloatStone)
-            .border(2.dp, Bronze, RoundedCornerShape(3.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(14.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        CompactStat("Health", state.health, HealthCol, Modifier.weight(1f))
-        CompactStat("Magicka", state.magicka, MagickaCol, Modifier.weight(1f))
-        CompactStat("Fatigue", state.fatigue, FatigueCol, Modifier.weight(1f))
-
-        if (hasEffects) {
-            Box(
-                Modifier
-                    .width(1.dp)
-                    .height(28.dp)
-                    .background(BronzeDark)
-            )
-            Column(
-                modifier = Modifier.clickable {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(enabled = hasEffects) {
                     effectsExpanded = !effectsExpanded
                     if (effectsExpanded) DropdownState.open() else DropdownState.closeAll()
                 },
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Effects", color = labelColor, fontSize = 12.sp, fontFamily = MwDisplay, maxLines = 1,
+                modifier = Modifier.width(labelWidth)
+            )
+            EffectsSummary(state.activeEffects)
+            Spacer(Modifier.weight(1f))
+            if (hasEffects) {
                 Text(
-                    "Effects",
-                    color = BronzeLight, fontSize = 12.sp,
-                    fontFamily = MwDisplay, fontWeight = FontWeight.Bold
+                    if (effectsExpanded) "hide" else "list", color = labelColor.copy(alpha = 0.7f),
+                    fontSize = 10.sp, fontFamily = MwDisplay, maxLines = 1
                 )
-                Spacer(Modifier.height(4.dp))
-                EffectsSummary(state.activeEffects)
             }
         }
-    }
-
-    // Effects dropdown, anchored to a ZERO-SIZE box at the bar's bottom-right corner rather than to
-    // the Effects button, so it lands flush with the minimap panel below: the bar and the map box
-    // are both fillMaxWidth() in the same Column, so their left/right borders share an x — which
-    // makes this anchor's x the map's RIGHT border — and the only thing between them is that
-    // Column's 6dp spacing, which the y offset adds back to reach the map's TOP border.
-    //
-    // Anchoring rather than nudging is what makes it exact: M3's position provider tries
-    // anchor.left first, sees a menu that wide would overflow the window, and falls back to
-    // aligning the menu's RIGHT edge with anchor.right — the corner itself. No measurement, no
-    // tuned pixel offset that a font or padding change would silently invalidate.
-    if (hasEffects) {
-        Box(Modifier.align(Alignment.BottomEnd)) {
-            CompanionDropdownMenu(
-                expanded = effectsExpanded,
-                onDismissRequest = { effectsExpanded = false; DropdownState.closeAll() },
-                offset = DpOffset(0.dp, TOP_BOX_TO_MAP_GAP)
-            ) {
-                // Cap at ~7 rows then scroll, so a heavily-buffed character can't grow the
-                // dropdown to the full screen height. Same heightIn(max) + verticalScroll
-                // pattern as InventoryEquippedSection / ItemInfoPopupCard. (M3's own
-                // DropdownMenuContent also scrolls, but only at the window bound — it has no
-                // row-count cap, and with the content bounded here it has nothing left to do.)
+        if (hasEffects) {
+            Box(Modifier.align(Alignment.BottomStart)) {
+                CompanionDropdownMenu(
+                    expanded = effectsExpanded,
+                    onDismissRequest = { effectsExpanded = false; DropdownState.closeAll() },
+                    offset = DpOffset((-12).dp, 12.dp)
+                ) {
                 val effectsScroll = rememberScrollState()
                 Column(
                     Modifier
@@ -13858,9 +13858,9 @@ private fun TopStatBar(state: GameState, modifier: Modifier = Modifier) {
                 }
                 }
                 ScrollMoreHint(effectsScroll)
+                }
             }
         }
-    }
     }
 }
 
@@ -13954,7 +13954,7 @@ private fun CompactStat(
                 .fillMaxWidth()
                 .height(9.dp)
                 .clip(RoundedCornerShape(1.dp))
-                .background(Color(0xFF0E0B07))
+                .background(CompanionPalette.Iron)
                 .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
         ) {
             Box(
@@ -13971,12 +13971,14 @@ private fun CompactStat(
 /* ---- Map: local-map texture from the engine + player direction arrow ---- */
 
 @Composable
-private fun MapPanel(
+internal fun HudMapLayer(
     state: GameState,
-    splashVisible: Boolean = false,
-    // Switch the bottom tab bar. Owned by CompanionScreenContent; the HUD needs it so an empty
-    // favourite slot can take the player to the list the favourite is added from.
-    onSelectTab: (Tab) -> Unit = {}
+    splashVisible: Boolean,
+    // Map scale on top of MINIMAP_CROP_FRACTION: 1 is the old Field map, above 1 is closer.
+    zoom: Float,
+    // Where a look-drag finger is while it turns the view (null when it lifts): the HUD's touch ring.
+    onLook: (Offset?) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val exteriorMaps by GameStateRepository.exteriorMapBitmaps.collectAsState()
     val interiorMaps by GameStateRepository.interiorMapBitmaps.collectAsState()
@@ -14010,95 +14012,13 @@ private fun MapPanel(
         }
     }
 
-    val favs by FavouritesRepository.state.collectAsState()
-    val context = LocalContext.current
-
-    // How many favourite slots each group shows (0..FAV_SLOTS_MAX). These drive the LAYOUT only —
-    // the repository has already truncated `favs` to the same counts, so the two cannot disagree.
-    // Read by SIDE: the underlying preferences are still named by content for storage compatibility
-    // (see the alias note in UiPreferences), but position is what the HUD lays out.
-    val favLeftSlots by UiPreferences.favLeftSlotsFlow().collectAsState()
-    val favRightSlots by UiPreferences.favRightSlotsFlow().collectAsState()
-    val favMixed by UiPreferences.favMixedFlow().collectAsState()
-
-    // Native sneak indicator (sneaking && undetected). Drives the stealth icon below.
-    val sneakVisible by GameStateRepository.sneakVisible.collectAsState()
-
-    val weaponId = state.equipment["weapon"]
-    val weaponItem = weaponId?.let {
-        state.inventory.find { it.stackId == weaponId }
-            ?: state.inventory.find { it.stackId.isEmpty() && it.id == weaponId }
-    }
-    val weaponName = if (weaponId == null) "Hand-to-Hand"
-                     else weaponItem?.displayName() ?: "None"
-    val weaponIcon = weaponItem?.icon ?: ""
-
-    val selectedSpellEntry = state.selectedSpell
-        ?.let { sid -> state.spells.find { it.id == sid } }
-    val selectedSpellName = selectedSpellEntry?.displayName() ?: "None"
-    val spellIcon = selectedSpellEntry?.icon ?: ""
-
-    // Meter on the SPELL icon: a cast-on-use enchanted item's remaining charge. Learned spells
-    // and scrolls have no charge (maxCharge = 0) and get no meter.
-    val spellMeter = selectedSpellEntry
-        ?.takeIf { it.maxCharge > 0 }
-        ?.let { (it.charge.toFloat() / it.maxCharge).coerceIn(0f, 1f) }
-
-    // Meter on the WEAPON (equipped item) icon. Two things share the one meter, because they are
-    // the same question — how much of this item is left to use:
-    //   * enchantment charge, for an item whose enchantment drains (state.equippedCharge is
-    //     already null unless it does — see EquippedCharge);
-    //   * a lockpick's or probe's remaining USES, which vanilla shows as a number on the item.
-    // Charge wins when an item has both, matching the inventory list's condition column. Ordinary
-    // weapons deliberately show nothing: their condition degrades slowly and is repairable,
-    // whereas both of the above are consumables you need to watch mid-fight or mid-lock.
-    val weaponMeter = state.equippedCharge?.ratio
-        ?: weaponItem
-            ?.takeIf { it.category == "lockpick" || it.category == "probe" }
-            ?.cond
-
     // The game's own player-direction arrow texture (same asset the native HUD minimap and world
     // map use, via RotatingSkin). Extracted through the shared icon pipeline (raw VFS path, DXT
     // decompressed) and drawn rotated by arrowDeg below; falls back to the drawn arrow while it
     // loads or if extraction fails.
     val compassBitmap = rememberItemIcon("textures/compass.dds")
 
-    var showWeaponName by remember { mutableStateOf(false) }
-    var showSpellName by remember { mutableStateOf(false) }
-
-    // Auto-dismiss the equipped weapon/spell name labels after EQUIP_NAME_POPUP_MS, mirroring the
-    // door-marker bubble. Keyed on the flag, so opening (re)starts the timer and a re-tap that
-    // toggle-closes it cancels the timer.
-    LaunchedEffect(showWeaponName) {
-        if (showWeaponName) {
-            delay(EQUIP_NAME_POPUP_MS)
-            showWeaponName = false
-        }
-    }
-    LaunchedEffect(showSpellName) {
-        if (showSpellName) {
-            delay(EQUIP_NAME_POPUP_MS)
-            showSpellName = false
-        }
-    }
-
-    // Laid out like Inventory/Spells: a fixed-height top box (the vitals bar) at 12dp from the
-    // top, a 6dp gap, then the map box filling the rest to the tab bar — so all three tabs' boxes
-    // line up. The map still fills its own box, so the crop math and overlays are unaffected.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .padding(top = 12.dp, bottom = BOTTOM_BAR_SPACE.dp, start = 12.dp, end = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(TOP_BOX_TO_MAP_GAP)
-    ) {
-        TopStatBar(state, Modifier.fillMaxWidth().height(TOP_BOX_HEIGHT))
-        Box(
-            Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .mwPanel()
-                .onSizeChanged { mapBoxSize = it }
-        ) {
+    Box(modifier.onSizeChanged { mapBoxSize = it }) {
         // Canvas fills the whole panel; labels float over it. A tap on a door marker shows its
         // destination name (and is reserved for richer per-marker info later); a tap anywhere else
         // (not covered by an overlay declared later in this Box — those consume the tap first via
@@ -14111,7 +14031,7 @@ private fun MapPanel(
         Canvas(
             Modifier
                 .fillMaxSize()
-                .pointerInput(doorMarkers, state.pos, markerAngle, markerCX, markerCY, splashVisible, mapReady) {
+                .pointerInput(doorMarkers, state.pos, markerAngle, markerCX, markerCY, splashVisible, mapReady, zoom) {
                     detectTapGestures { tap ->
                         if (splashVisible) return@detectTapGestures
                         val w = size.width.toFloat(); val h = size.height.toFloat()
@@ -14120,7 +14040,7 @@ private fun MapPanel(
                         val hit = doorMarkers
                             .map { m ->
                                 m to markerScreenPos(m.worldX, m.worldY, state.pos.x, state.pos.y,
-                                    markerAngle, markerCX, markerCY, w, h)
+                                    markerAngle, markerCX, markerCY, w, h, zoom)
                             }
                             .filter { (_, p) -> (p - tap).getDistance() <= hitR }
                             .minByOrNull { (_, p) -> (p - tap).getDistance() }
@@ -14140,10 +14060,14 @@ private fun MapPanel(
                         // rather than opening the map, which would wedge the game during char-gen.
                     }
                 }
+                // A drag across the map turns the view. Declared AFTER the tap detector
+                // so it sees each move first; once a finger passes the touch slop it consumes the
+                // moves, which cancels the tap above. A short tap still hits markers or opens the map.
+                .fieldLookDrag(enabled = !splashVisible, onLook = onLook)
         ) {
             val cx = size.width / 2f
             val cy = size.height / 2f
-            val cellPx = size.minDimension / MINIMAP_CROP_FRACTION
+            val cellPx = size.minDimension / MINIMAP_CROP_FRACTION * zoom
             // Interior maps are rendered rotated by the cell's NorthMarker angle, so the interior
             // branch adds that angle below; exterior maps are world-aligned (angle 0).
             var arrowDeg = state.rotZ * (180f / Math.PI.toFloat())
@@ -14231,7 +14155,7 @@ private fun MapPanel(
                 val half = size.minDimension * 0.028f
                 doorMarkers.forEach { m ->
                     val p = markerScreenPos(m.worldX, m.worldY, state.pos.x, state.pos.y,
-                        markerAngle, markerCX, markerCY, size.width, size.height)
+                        markerAngle, markerCX, markerCY, size.width, size.height, zoom)
                     if (p.x < -half || p.x > size.width + half || p.y < -half || p.y > size.height + half)
                         return@forEach
                     val sel = selectedMarker == m
@@ -14279,7 +14203,7 @@ private fun MapPanel(
             val pos = markerScreenPos(
                 marker.worldX, marker.worldY, state.pos.x, state.pos.y,
                 markerAngle, markerCX, markerCY,
-                mapBoxSize.width.toFloat(), mapBoxSize.height.toFloat()
+                mapBoxSize.width.toFloat(), mapBoxSize.height.toFloat(), zoom
             )
             Box(
                 Modifier
@@ -14305,91 +14229,6 @@ private fun MapPanel(
             }
         }
 
-        // Cell name — bottom-centre overlay. Horizontal padding keeps it clear of
-        // the GEAR/SPELLS favourite groups in the bottom corners. Up to TWO lines: because the
-        // Text is BottomCenter-anchored, a short name renders as one line in its current spot and
-        // a long one grows UPWARD into a second row (so more of e.g. "Seyda Neen, Census and
-        // Excise Office" is shown); anything past two lines still truncates with an ellipsis.
-        // textAlign centres both rows.
-        Text(
-            if (state.hasData) state.cell.ifEmpty { "Exterior" } else "-",
-            color = Bone, fontSize = 16.sp, fontFamily = MwDisplay,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = 8.dp, start = 144.dp, end = 144.dp)
-        )
-
-        // Spell — top-LEFT icon box, on the same side as the FAV. SPELLS group below it. A
-        // cast-on-use enchanted item in the spell slot shows its enchantment charge as a small
-        // meter on the icon.
-        //
-        // Sides are chosen to match the favourite groups at the bottom (FAV. SPELLS bottom-left,
-        // FAV. GEAR bottom-right), so each screen edge is consistently "magic" or "gear". If the
-        // fav groups are ever swapped, swap these two to match.
-        EquippedCornerIcon(
-            modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 6.dp),
-            label = "SPELL",
-            iconPath = spellIcon,
-            showName = showSpellName,
-            onToggle = { showSpellName = !showSpellName },
-            meter = spellMeter
-        )
-
-        // Weapon — top-RIGHT icon box, above the FAV. GEAR group. Tapping toggles a persistent
-        // name label.
-        EquippedCornerIcon(
-            modifier = Modifier.align(Alignment.TopEnd).padding(end = 8.dp, top = 6.dp),
-            label = "WEAPON",
-            iconPath = weaponIcon,
-            showName = showWeaponName,
-            onToggle = { showWeaponName = !showWeaponName },
-            // Ammo count for a bow/crossbow. Null for everything else — the exporter decides that
-            // (see EquippedAmmo), so there is no weapon-type test here to drift out of step with
-            // the engine's own rule.
-            ammoCount = state.ammo?.count,
-            meter = weaponMeter
-        )
-
-        // Sneak indicator — vanilla stealth icon (sneaking && undetected), shown just below the
-        // top-left icon box (the SPELL slot) at the same 40dp size. Left deliberately on this
-        // side when weapon/spell swapped sides: its 64dp offset is tuned to the corner-icon
-        // column height, and it stays clear of the name-label popouts (horizontal), the
-        // combat-target overlay (centre) and the bottom fav groups either way.
-        // Driven by the native COMPANION_SNEAK_VISIBLE signal.
-        if (sneakVisible) {
-            SneakCornerIcon(
-                modifier = Modifier.align(Alignment.TopStart).padding(start = 8.dp, top = 64.dp)
-            )
-        }
-
-        // Name labels — absolutely-positioned siblings of the icon columns above, so showing or
-        // hiding them never shifts the icons. Each opens INWARD from its icon (spell: to the
-        // right of the left icon; weapon: to the left of the right icon), vertically centred on
-        // the box. Must stay on the same side as the icon each one belongs to.
-        // Horizontal offset = corner gap (8dp) + icon width (40dp) + 6dp gap.
-        if (showSpellName) {
-            CornerNameLabel(
-                name = selectedSpellName,
-                alignEnd = false,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .padding(start = 8.dp + 40.dp + 6.dp, top = 6.dp)
-            )
-        }
-        if (showWeaponName) {
-            CornerNameLabel(
-                name = weaponName,
-                alignEnd = true,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(end = 8.dp + 40.dp + 6.dp, top = 6.dp)
-            )
-        }
-
         // Loading placeholder
         if (!hasMap && state.hasData) {
             Text(
@@ -14399,81 +14238,91 @@ private fun MapPanel(
             )
         }
 
-        // Favourite quick-slots — one group per screen corner, bottom-left and bottom-right.
-        //
-        // ONE composable renders both. They used to be two ~110-line blocks that had drifted apart
-        // (the right-hand one classified a potion as equippable and its tap silently no-opped for
-        // months), and mixed mode would have doubled the divergence rather than halved it, since
-        // each side must now handle both kinds. See FavGroup.
-        FavGroup(
-            side = FavSide.LEFT,
-            slots = favs.left,
-            visibleCount = favLeftSlots,
-            mixed = favMixed,
-            state = state,
-            context = context,
-            onSelectTab = onSelectTab
-        )
-        FavGroup(
-            side = FavSide.RIGHT,
-            slots = favs.right,
-            visibleCount = favRightSlots,
-            mixed = favMixed,
-            state = state,
-            context = context,
-            onSelectTab = onSelectTab
-        )
 
-        // Combat target — top-centre, in the gap between the WEAPON and SPELL
-        // pills. Only present while a target exists (during combat), and only when the
-        // target-health bar is routed to the bottom screen (TOP moves it to a top-screen overlay).
-        val targetHealthLocation by UiPreferences.targetHealthLocationFlow().collectAsState()
-        val combatTarget =
-            if (targetHealthLocation == TargetHealthLocation.BOTTOM) state.target else null
-        // Non-null == the top-centre slot is taken; the followed-quest label below yields to it.
-        val targetOverlayShowing = combatTarget != null
-        if (combatTarget != null) {
-            TargetHealthOverlay(
-                target = combatTarget,
-                modifier = Modifier
-                    .align(Alignment.TopCenter)
-                    .padding(top = 6.dp)
-            )
-        }
-
-        // Followed quest — top-centre, the same slot the combat target uses, so it yields whenever
-        // that overlay is up (combat is transient, and target health routed to the bottom screen is
-        // not the default). Declared LAST in this Box so it paints above the door-marker bubble if
-        // they ever overlap.
-        val questPrefs by QuestPrefsRepository.state.collectAsState()
-        val followedId = questPrefs.followed
-        if (!targetOverlayShowing && followedId == null) {
-            // Still yields to the combat target, exactly as the followed label does — a transient
-            // fight matters more than an empty slot.
-            EmptyTrackedQuestLabel(modifier = Modifier.align(Alignment.TopCenter))
-        }
-        if (!targetOverlayShowing && followedId != null) {
-            // Resolved against the QUEST LIST, the same source the Quests tab now reads, so the
-            // HUD can never name a quest differently from the page it navigates to. The manual
-            // pseudo-quest is special-cased because it exists only on this side and is never in
-            // the export — without it this falls through to prettifyQuestId of the reserved id and
-            // prints garbage on the HUD.
-            val followedQuests by GameStateRepository.quests.collectAsState()
-            val followedTitle = remember(followedId, followedQuests) {
-                when {
-                    followedId == MANUAL_QUEST_ID -> MANUAL_QUEST_NAME
-                    else -> followedQuests.firstOrNull { it.id == followedId }?.name
-                        ?: prettifyQuestId(followedId)
-                }
+        // True north: a small "N" at the map's edge. Exterior maps are world-aligned, so it sits at
+        // the top; an interior map is drawn turned by its NorthMarker angle, and world north is then
+        // at -angle (the same sense the arrow uses above), so the N walks round the edge with it.
+        if (hasMap && mapBoxSize.width > 0 && mapBoxSize.height > 0) {
+            val theta = -markerAngle
+            val sx = sin(theta); val sy = -cos(theta)
+            Box(
+                Modifier
+                    .offset {
+                        val m = 16.dp.toPx()
+                        val hx = mapBoxSize.width / 2f - m
+                        val hy = mapBoxSize.height / 2f - m
+                        val t = minOf(
+                            if (abs(sx) > 1e-4f) hx / abs(sx) else Float.MAX_VALUE,
+                            if (abs(sy) > 1e-4f) hy / abs(sy) else Float.MAX_VALUE
+                        )
+                        val half = 10.dp.toPx()
+                        IntOffset(
+                            (mapBoxSize.width / 2f + sx * t - half).roundToInt(),
+                            (mapBoxSize.height / 2f + sy * t - half).roundToInt()
+                        )
+                    }
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(CompanionPalette.IronSolid.copy(alpha = 0.85f))
+                    .border(1.dp, CompanionPalette.BrassEdge, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("N", color = CompanionPalette.BrassBright, fontSize = 11.sp, fontFamily = MwDisplay, lineHeight = 11.sp)
             }
-            FollowedQuestLabel(
-                questId = followedId,
-                title = followedTitle,
-                hidden = followedId in questPrefs.hidden,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
         }
-        }  // end map Box
+    }
+}
+
+/** The combat target's health, for the HUD tab, when the target-health bar is set to the bottom
+ *  screen; nothing otherwise (or when there is no target). */
+@Composable
+internal fun HudTargetHealth(state: GameState, modifier: Modifier = Modifier) {
+    val targetHealthLocation by UiPreferences.targetHealthLocationFlow().collectAsState()
+    val combatTarget = if (targetHealthLocation == TargetHealthLocation.BOTTOM) state.target else null
+    if (combatTarget != null) {
+        Box(modifier, contentAlignment = Alignment.TopCenter) { TargetHealthOverlay(target = combatTarget) }
+    }
+}
+
+/**
+ * The followed quest as one small line, under the cell name on the HUD tab. Tap opens its journal
+ * page, long-press the same Hide/Follow menu the quest list uses; nothing at all when no quest is
+ * followed. Resolved against the quest list exactly as the old map label was.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+internal fun HudFollowedQuestLine(color: Color, modifier: Modifier = Modifier) {
+    val questPrefs by QuestPrefsRepository.state.collectAsState()
+    val followedQuests by GameStateRepository.quests.collectAsState()
+    var menuOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(DropdownState.closeRequest) {
+        if (DropdownState.closeRequest > 0) menuOpen = false
+    }
+    val followedId = questPrefs.followed ?: return
+    val title = remember(followedId, followedQuests) {
+        when {
+            followedId == MANUAL_QUEST_ID -> MANUAL_QUEST_NAME
+            else -> followedQuests.firstOrNull { it.id == followedId }?.name ?: prettifyQuestId(followedId)
+        }
+    }
+    Box(modifier) {
+        Text(
+            title,
+            color = color, fontSize = 11.sp, fontFamily = MwBody,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center,
+            modifier = Modifier
+                .fillMaxWidth()
+                .combinedClickable(
+                    onClick = { JournalQuestNavState.request(followedId) },
+                    onLongClick = { menuOpen = true; DropdownState.open() }
+                )
+                .padding(vertical = 2.dp)
+        )
+        QuestContextMenu(
+            questId = followedId, title = title, hidden = followedId in questPrefs.hidden, followed = true,
+            expanded = menuOpen,
+            onDismiss = { menuOpen = false; DropdownState.closeAll() }
+        )
     }
 }
 
@@ -14671,7 +14520,7 @@ private fun TargetHealthOverlay(target: TargetInfo, modifier: Modifier = Modifie
                 .width(200.dp)
                 .height(16.dp)
                 .clip(RoundedCornerShape(2.dp))
-                .background(Color(0xFF0E0B07))
+                .background(CompanionPalette.Iron)
                 .border(1.dp, BronzeDark, RoundedCornerShape(2.dp))
         ) {
             Box(
@@ -14705,6 +14554,8 @@ private fun EquippedCornerIcon(
     // null = no counter, which is the normal case for every other weapon (and for a bow with
     // nothing loaded) — see EquippedAmmo.
     ammoCount: Int? = null,
+    // Field tab: the weapon / spell is drawn (readied), so the box gets a bright double border.
+    readied: Boolean = false,
 ) {
     val icon = rememberItemIcon(iconPath)
     Column(
@@ -14724,7 +14575,11 @@ private fun EquippedCornerIcon(
                 .size(40.dp)
                 .clip(RoundedCornerShape(2.dp))
                 .background(SlotBg)
-                .border(1.dp, if (showName) BronzeLight else BronzeDark, RoundedCornerShape(2.dp))
+                .border(
+                    if (readied) 2.dp else 1.dp,
+                    if (readied) BoneBright else if (showName) BronzeLight else BronzeDark,
+                    RoundedCornerShape(2.dp)
+                )
                 .clickable { onToggle() }
         ) {
             if (icon != null) {
@@ -14746,7 +14601,7 @@ private fun EquippedCornerIcon(
                         .fillMaxWidth()
                         .height(4.dp)
                         .clip(RoundedCornerShape(1.dp))
-                        .background(Color(0xFF0E0B07))
+                        .background(CompanionPalette.Iron)
                         .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
                 ) {
                     Box(
@@ -14924,9 +14779,9 @@ private fun EquippedDisplayPill(value: String) {
 // by the door-marker draw and the tap hit-test so they can never diverge.
 private fun markerScreenPos(
     worldX: Float, worldY: Float, playerX: Float, playerY: Float,
-    angle: Float, centerX: Float, centerY: Float, w: Float, h: Float
+    angle: Float, centerX: Float, centerY: Float, w: Float, h: Float, zoom: Float = 1f
 ): Offset {
-    val cellPx = minOf(w, h) / MINIMAP_CROP_FRACTION
+    val cellPx = minOf(w, h) / MINIMAP_CROP_FRACTION * zoom
     val ca = cos(angle); val sa = sin(angle)
     val rmx = ca * (worldX - centerX) - sa * (worldY - centerY) + centerX
     val rmy = sa * (worldX - centerX) + ca * (worldY - centerY) + centerY
@@ -15200,157 +15055,205 @@ private fun BoxScope.FavGroup(
             }
             repeat(visibleCount) { idx ->
                 if (idx > 0) Spacer(Modifier.height(FAV_SLOT_SPACING))
-                val slot = slots.getOrNull(idx)
-                val isSpell = slot?.kind == FavKind.MAGIC
-                val slotItem =
-                    if (isSpell) null else slot?.let { s -> state.inventory.find { it.id == s.id } }
-
-                // Highlight: a spell is "active" when it is the selected spell; an item when it is
-                // worn. Both mirror the inventory/spell list styling.
-                val highlighted = when {
-                    slot == null -> false
-                    isSpell -> state.selectedSpell == slot.id
-                    slotItem?.stackId?.isNotEmpty() == true ->
-                        state.equipment.values.contains(slotItem.stackId)
-                    else -> state.equipment.values.contains(slot.id)
-                }
-
-                // A CONSUMABLE favourite outlives its stack: reconcile no longer prunes it when the
-                // last potion is drunk, so the assignment can legitimately name an item that is not
-                // in the inventory right now. Render that as the ordinary empty slot (dashed, dim,
-                // same onEmptyTap) WITHOUT clearing it — the lookup above starts resolving again by
-                // itself the moment the player picks another one up, and the slot refills.
-                // Deliberately gated on the stored category rather than on "item == null" alone:
-                // during the save-load window the inventory export is briefly empty and every gear
-                // favourite would otherwise flash Empty. Spells are never out of stock.
-                val outOfStock = slot != null && !isSpell && slotItem == null &&
-                    isUsableCategory(slot.category)
-
-                FavSlotView(
-                    slot = slot,
-                    borderColor = BronzeLight,
-                    equipped = highlighted,
-                    outOfStock = outOfStock,
-                    // Stock counter for a consumable favourite, so "how many Restore Health have I
-                    // left" is answerable without opening the Inventory tab. Gear and spells pass
-                    // null: they do not stack the same way and already read their state from the
-                    // equipped highlight.
-                    count = slotItem?.count?.takeIf { isUsableCategory(slotItem.category) },
-                    // C: extend the tap target outward only — top slot (idx 0) up, LAST slot down.
+                FavouriteActionSlot(
+                    slot = slots.getOrNull(idx), side = side, index = idx, mixed = mixed,
+                    state = state, context = context, onSelectTab = onSelectTab,
                     hitPadTop = if (idx == 0) FAV_SLOT_HIT_EXTEND else 0.dp,
-                    hitPadBottom = if (idx == visibleCount - 1) FAV_SLOT_HIT_EXTEND else 0.dp,
-                    onEmptyTap = {
-                        onSelectTab(if (isLeft) Tab.MAGIC else Tab.INVENTORY)
-                        HintToastState.show(
-                            when {
-                                mixed -> FAV_MIXED_HINT
-                                isLeft -> FAV_SPELL_HINT
-                                else -> FAV_GEAR_HINT
-                            }
-                        )
-                    },
-                    menuItems = { s, dismiss ->
-                        val colors = MenuDefaults.itemColors(textColor = Bone)
-                        if (s.kind == FavKind.MAGIC) {
-                            DropdownMenuItem(
-                                text = { Text("Set as active spell", fontFamily = MwBody, fontSize = 13.sp) },
-                                onClick = { dismiss(); CompanionActions.selectSpell(s.id) },
-                                colors = colors
-                            )
-                        } else {
-                            // Same classification the Inventory tab's ItemContextMenu uses, via the
-                            // shared predicates. This menu used to re-spell the rule inline with no
-                            // `usable` branch, so a potion was classed equippable and offered a dead
-                            // "Equip" with no Drink row at all.
-                            val item = state.inventory.find { it.id == s.id }
-                            val readable = item?.isReadable() == true
-                            // Held as the ITEM, not a Boolean, so the row below can read its use
-                            // verb (Drink / Eat / Use) without a null assertion.
-                            val usableItem = item?.takeIf { it.isUsable() }
-                            val equippable = item?.isEquippable() == true
-                            val target = item?.stackId?.takeIf { it.isNotEmpty() } ?: s.id
-                            val worn = if (item?.stackId?.isNotEmpty() == true)
-                                state.equipment.values.contains(item.stackId)
-                            else
-                                state.equipment.values.contains(s.id)
-                            if (equippable) {
-                                DropdownMenuItem(
-                                    text = { Text(if (worn) "Unequip" else "Equip", fontFamily = MwBody, fontSize = 13.sp) },
-                                    onClick = {
-                                        dismiss()
-                                        if (worn) CompanionActions.unequipItem(target)
-                                        else CompanionActions.equipItem(target)
-                                    },
-                                    colors = colors
-                                )
-                            }
-                            if (readable) {
-                                DropdownMenuItem(
-                                    text = { Text("Read", fontFamily = MwBody, fontSize = 13.sp) },
-                                    onClick = { dismiss(); CompanionActions.readItem(s.id) },
-                                    colors = colors
-                                )
-                            }
-                            if (usableItem != null) {
-                                DropdownMenuItem(
-                                    text = { Text(usableItem.useVerb(), fontFamily = MwBody, fontSize = 13.sp) },
-                                    onClick = { dismiss(); CompanionActions.useItem(s.id) },
-                                    colors = colors
-                                )
-                            }
-                            // Drop needs the item in hand. An out-of-stock consumable favourite
-                            // keeps its assignment, so this menu can open for an item the player
-                            // does not currently carry.
-                            if (item != null) {
-                                DropdownMenuItem(
-                                    text = { Text("Drop", fontFamily = MwBody, fontSize = 13.sp) },
-                                    onClick = {
-                                        dismiss()
-                                        // A plain TAB, no controller nav routed here, so no "[Y]"
-                                        // hint. Same reasoning as the inventory Drop.
-                                        QuantityRequestState.requestOrRun(
-                                            s.name, item.count, "Drop", showControllerHint = false
-                                        ) { n -> CompanionActions.dropItem(s.id, n) }
-                                    },
-                                    colors = colors
-                                )
-                            }
-                        }
-                        DropdownMenuItem(
-                            text = { Text("Unfavourite", fontFamily = MwBody, fontSize = 13.sp) },
-                            onClick = { dismiss(); FavouritesRepository.clear(context, side, idx) },
-                            colors = colors
-                        )
-                    }
-                ) {
-                    val s = slot ?: return@FavSlotView
-                    if (s.kind == FavKind.MAGIC) {
-                        CompanionActions.selectSpell(s.id)
-                        return@FavSlotView
-                    }
-                    val item = state.inventory.find { it.id == s.id } ?: return@FavSlotView
-                    // itemPrimaryAction picks the target id itself (per-stack instance id for
-                    // equip/unequip, record id for use/read), so there is no local `target` here
-                    // any more — that choice now lives in exactly one place too.
-                    val worn = if (item.stackId.isNotEmpty())
-                        state.equipment.values.contains(item.stackId)
-                    else
-                        state.equipment.values.contains(s.id)
-                    // One shared dispatcher with the Inventory tab's List and Cards rows, so a
-                    // favourited potion drinks here exactly as it does there. The inline copy this
-                    // replaced had no `usable` branch: it sent CMP:equip, slotForItem returned nil
-                    // and the tap died in the engine with "equip - no slot for:".
-                    itemPrimaryAction(
-                        item,
-                        worn = worn,
-                        equippable = item.isEquippable(),
-                        usable = item.isUsable(),
-                        readable = item.isReadable()
-                    )
-                }
+                    hitPadBottom = if (idx == visibleCount - 1) FAV_SLOT_HIT_EXTEND else 0.dp
+                )
             }
         }
     }
+}
+
+// Shared by the HUD and Aim panel: assignment, equipped state, tap actions and menus stay identical.
+@Composable
+private fun FavouriteActionSlot(
+    slot: FavSlot?, side: FavSide, index: Int, mixed: Boolean,
+    state: GameState, context: Context, onSelectTab: (Tab) -> Unit,
+    hitPadTop: Dp = 0.dp, hitPadBottom: Dp = 0.dp, large: Boolean = false
+) {
+    val isLeft = side == FavSide.LEFT
+    val isSpell = slot?.kind == FavKind.MAGIC
+    val slotItem =
+        if (isSpell) null else slot?.let { s -> state.inventory.find { it.id == s.id } }
+
+    // Highlight: a spell is "active" when it is the selected spell; an item when it is
+    // worn. Both mirror the inventory/spell list styling.
+    val highlighted = when {
+        slot == null -> false
+        isSpell -> state.selectedSpell == slot.id
+        slotItem?.stackId?.isNotEmpty() == true ->
+            state.equipment.values.contains(slotItem.stackId)
+        else -> state.equipment.values.contains(slot.id)
+    }
+
+    // A CONSUMABLE favourite outlives its stack: reconcile no longer prunes it when the
+    // last potion is drunk, so the assignment can legitimately name an item that is not
+    // in the inventory right now. Render that as the ordinary empty slot (dashed, dim,
+    // same onEmptyTap) WITHOUT clearing it — the lookup above starts resolving again by
+    // itself the moment the player picks another one up, and the slot refills.
+    // Deliberately gated on the stored category rather than on "item == null" alone:
+    // during the save-load window the inventory export is briefly empty and every gear
+    // favourite would otherwise flash Empty. Spells are never out of stock.
+    val outOfStock = slot != null && !isSpell && slotItem == null &&
+        isUsableCategory(slot.category)
+
+    FavSlotView(
+        slot = slot,
+        large = large,
+        borderColor = BronzeLight,
+        equipped = highlighted,
+        outOfStock = outOfStock,
+        // Stock counter for a consumable favourite, so "how many Restore Health have I
+        // left" is answerable without opening the Inventory tab. Gear and spells pass
+        // null: they do not stack the same way and already read their state from the
+        // equipped highlight.
+        count = slotItem?.count?.takeIf { isUsableCategory(slotItem.category) },
+        // C: extend the tap target outward only — top slot (idx 0) up, LAST slot down.
+        hitPadTop = hitPadTop,
+        hitPadBottom = hitPadBottom,
+        onEmptyTap = {
+            onSelectTab(if (isLeft) Tab.MAGIC else Tab.INVENTORY)
+            HintToastState.show(
+                when {
+                    mixed -> FAV_MIXED_HINT
+                    isLeft -> FAV_SPELL_HINT
+                    else -> FAV_GEAR_HINT
+                }
+            )
+        },
+        menuItems = { s, dismiss ->
+            val colors = MenuDefaults.itemColors(textColor = Bone)
+            if (s.kind == FavKind.MAGIC) {
+                DropdownMenuItem(
+                    text = { Text("Set as active spell", fontFamily = MwBody, fontSize = 13.sp) },
+                    onClick = { dismiss(); CompanionActions.selectSpell(s.id) },
+                    colors = colors
+                )
+            } else {
+                // Same classification the Inventory tab's ItemContextMenu uses, via the
+                // shared predicates. This menu used to re-spell the rule inline with no
+                // `usable` branch, so a potion was classed equippable and offered a dead
+                // "Equip" with no Drink row at all.
+                val item = state.inventory.find { it.id == s.id }
+                val readable = item?.isReadable() == true
+                // Held as the ITEM, not a Boolean, so the row below can read its use
+                // verb (Drink / Eat / Use) without a null assertion.
+                val usableItem = item?.takeIf { it.isUsable() }
+                val equippable = item?.isEquippable() == true
+                val target = item?.stackId?.takeIf { it.isNotEmpty() } ?: s.id
+                val worn = if (item?.stackId?.isNotEmpty() == true)
+                    state.equipment.values.contains(item.stackId)
+                else
+                    state.equipment.values.contains(s.id)
+                if (equippable) {
+                    DropdownMenuItem(
+                        text = { Text(if (worn) "Unequip" else "Equip", fontFamily = MwBody, fontSize = 13.sp) },
+                        onClick = {
+                            dismiss()
+                            if (worn) CompanionActions.unequipItem(target)
+                            else CompanionActions.equipItem(target)
+                        },
+                        colors = colors
+                    )
+                }
+                if (readable) {
+                    DropdownMenuItem(
+                        text = { Text("Read", fontFamily = MwBody, fontSize = 13.sp) },
+                        onClick = { dismiss(); CompanionActions.readItem(s.id) },
+                        colors = colors
+                    )
+                }
+                if (usableItem != null) {
+                    DropdownMenuItem(
+                        text = { Text(usableItem.useVerb(), fontFamily = MwBody, fontSize = 13.sp) },
+                        onClick = { dismiss(); CompanionActions.useItem(s.id) },
+                        colors = colors
+                    )
+                }
+                // Drop needs the item in hand. An out-of-stock consumable favourite
+                // keeps its assignment, so this menu can open for an item the player
+                // does not currently carry.
+                if (item != null) {
+                    DropdownMenuItem(
+                        text = { Text("Drop", fontFamily = MwBody, fontSize = 13.sp) },
+                        onClick = {
+                            dismiss()
+                            // A plain TAB, no controller nav routed here, so no "[Y]"
+                            // hint. Same reasoning as the inventory Drop.
+                            QuantityRequestState.requestOrRun(
+                                s.name, item.count, "Drop", showControllerHint = false
+                            ) { n -> CompanionActions.dropItem(s.id, n) }
+                        },
+                        colors = colors
+                    )
+                }
+            }
+            DropdownMenuItem(
+                text = { Text("Unfavourite", fontFamily = MwBody, fontSize = 13.sp) },
+                onClick = { dismiss(); FavouritesRepository.clear(context, side, index) },
+                colors = colors
+            )
+        }
+    ) {
+        val s = slot ?: return@FavSlotView
+        favouriteTap(s, state)
+    }
+}
+
+/** A favourite's tap, shared by the HUD pills and the brass Aim tab's round slots. */
+internal fun favouriteTap(s: FavSlot, state: GameState) {
+    if (s.kind == FavKind.MAGIC) {
+        CompanionActions.selectSpell(s.id)
+        return
+    }
+    val item = state.inventory.find { it.id == s.id } ?: return
+    // A favourited scroll is for casting, not reading: make it the current magic (CMP:spell takes a
+    // scroll's record id, as the Spells tab does) and ready magic, so the big button reads CAST and
+    // one press uses the scroll up. Tapping a scroll inside the Inventory tab still opens it to read.
+    if (item.category == "scroll") {
+        CompanionActions.selectSpell(item.id)
+        if (!RgdsControls.spellReadied) RgdsControls.tap(46)
+        return
+    }
+    // itemPrimaryAction picks the target id itself (per-stack instance id for
+    // equip/unequip, record id for use/read), so there is no local `target` here
+    // any more — that choice now lives in exactly one place too.
+    val worn = if (item.stackId.isNotEmpty())
+        state.equipment.values.contains(item.stackId)
+    else
+        state.equipment.values.contains(s.id)
+    // One shared dispatcher with the Inventory tab's List and Cards rows, so a
+    // favourited potion drinks here exactly as it does there. The inline copy this
+    // replaced had no `usable` branch: it sent CMP:equip, slotForItem returned nil
+    // and the tap died in the engine with "equip - no slot for:".
+    itemPrimaryAction(
+        item,
+        worn = worn,
+        equippable = item.isEquippable(),
+        usable = item.isUsable(),
+        readable = item.isReadable()
+    )
+}
+
+/** True when a favourite is the selected spell or a worn item (FavouriteActionSlot's rule). */
+internal fun favouriteHighlighted(slot: FavSlot, state: GameState): Boolean {
+    if (slot.kind == FavKind.MAGIC) return state.selectedSpell == slot.id
+    val item = state.inventory.find { it.id == slot.id }
+    return if (item?.stackId?.isNotEmpty() == true) state.equipment.values.contains(item.stackId)
+    else state.equipment.values.contains(slot.id)
+}
+
+/** The icon of a favourite's spell or item, through the shared icon pipeline (null while loading). */
+@Composable
+internal fun rememberFavouriteIcon(slot: FavSlot?, state: GameState): ImageBitmap? {
+    val path = when {
+        slot == null -> ""
+        slot.kind == FavKind.MAGIC -> state.spells.find { it.id == slot.id }?.icon ?: ""
+        else -> state.inventory.find { it.id == slot.id }?.icon ?: ""
+    }
+    return rememberItemIcon(path)
 }
 
 /* ---- Favourite slots (floating over the map) ---- */
@@ -15359,6 +15262,7 @@ private fun BoxScope.FavGroup(
 @Composable
 private fun FavSlotView(
     slot: FavSlot?,
+    large: Boolean = false,
     borderColor: Color,
     equipped: Boolean = false,
     // C: outward-only tap-target extension (transparent). hitPadTop enlarges the touch area upward
@@ -15388,9 +15292,9 @@ private fun FavSlotView(
     val alpha   = if (isEmpty) 0.4f else 1f
     // Mirror the inventory worn/unworn styling: equipped favourites get the
     // bronze-tinted fill + bright border/name, non-equipped ones stay dim.
-    val bgColor    = if (equipped) SlotWorn else Color(0xC0151210)
+    val bgColor    = if (equipped && large) Color(0xFFF1CA66) else if (equipped) SlotWorn else Color(0xC0151210)
     val slotBorder = if (equipped) borderColor else BronzeDark
-    val textColor  = if (equipped) BoneBright else BoneMuted
+    val textColor  = if (equipped && large) Color(0xFF33240F) else if (equipped) BoneBright else BoneMuted
 
     // ---- Label fitting. The pill is FAV_SLOT_WIDTH wide and most item names are wider than the
     // room left once the count chip is in, so the label is measured and progressively shortened
@@ -15398,7 +15302,7 @@ private fun FavSlotView(
     // slot's own long-press menu below, all render slot.name untouched.
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val nameStyle = TextStyle(fontSize = 11.sp, fontFamily = MwBody)
+    val nameStyle = TextStyle(fontSize = if (large) 13.sp else 11.sp, fontFamily = if (large) FontFamily.SansSerif else MwBody)
     val countStyle = TextStyle(fontSize = 10.sp, fontFamily = MwData)
     val showCount = count != null && !(slot == null || outOfStock)
     // Reserve the chip's MEASURED width rather than a worst-case constant: a "×3" chip is ~28dp
@@ -15458,7 +15362,7 @@ private fun FavSlotView(
             Box(
                 modifier = Modifier
                     .width(FAV_SLOT_WIDTH)
-                    .height(FAV_SLOT_HEIGHT)
+                    .height(if (large) 42.dp else FAV_SLOT_HEIGHT)
                     .clip(RoundedCornerShape(4.dp))
                     .background(bgColor)
                     .then(
@@ -15473,8 +15377,8 @@ private fun FavSlotView(
                     // that no stage can compress enough.
                     text = label ?: "Empty",
                     color = textColor.copy(alpha = alpha),
-                    fontSize = 11.sp,
-                    fontFamily = MwBody,
+                    fontSize = if (large) 13.sp else 11.sp,
+                    fontFamily = if (large) FontFamily.SansSerif else MwBody,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = TextAlign.Center,
@@ -16492,7 +16396,7 @@ private fun ItemConditionColumn(cond: Float?, enchantCharge: Pair<Int, Int>?, wi
                             .fillMaxWidth()
                             .height(4.dp)
                             .clip(RoundedCornerShape(1.dp))
-                            .background(Color(0xFF0E0B07))
+                            .background(CompanionPalette.Iron)
                             .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
                     ) {
                         Box(
@@ -16519,7 +16423,7 @@ private fun ItemConditionColumn(cond: Float?, enchantCharge: Pair<Int, Int>?, wi
                             .fillMaxWidth()
                             .height(4.dp)
                             .clip(RoundedCornerShape(1.dp))
-                            .background(Color(0xFF0E0B07))
+                            .background(CompanionPalette.Iron)
                             .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
                     ) {
                         Box(
@@ -19654,7 +19558,7 @@ private fun StatInfoPopup(info: StatInfo, onDismiss: () -> Unit) {
                         .fillMaxWidth()
                         .height(6.dp)
                         .clip(RoundedCornerShape(1.dp))
-                        .background(Color(0xFF0E0B07))
+                        .background(CompanionPalette.Iron)
                         .border(1.dp, BronzeDark, RoundedCornerShape(1.dp))
                 ) {
                     Box(
@@ -20146,8 +20050,8 @@ private fun BottomTabBar(
             .clip(RoundedCornerShape(3.dp))
             .background(FloatStone)
             .border(2.dp, Bronze, RoundedCornerShape(3.dp))
-            .padding(6.dp),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Tab.entries.forEach { t ->
             val isSel = t == selected
@@ -20155,21 +20059,24 @@ private fun BottomTabBar(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(2.dp))
-                    .background(if (isSel) Bronze else Color.Transparent)
+                    .background(if (isSel) CompanionPalette.BrassFill else Color.Transparent)
                     .border(
                         1.dp,
                         if (isSel) BronzeLight else BronzeDark,
                         RoundedCornerShape(2.dp)
                     )
                     .clickable { onSelect(t) }
-                    .padding(vertical = 13.dp),
+                    .heightIn(min = 30.dp)
+                    .padding(vertical = 3.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     t.label,
-                    color = if (isSel) StoneDark else Bone,
-                    fontSize = 14.sp,
+                    color = if (isSel) CompanionPalette.BrassBright else BoneDim,
+                    fontSize = 13.sp,
                     fontFamily = MwDisplay,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                     textAlign = TextAlign.Center
                 )
@@ -20193,9 +20100,9 @@ private fun prettify(id: String): String =
  *      pause/options menu is open; hosted as a WindowManager panel by EngineActivity). ---- */
 
 /** Warm near-black background for the full-screen options menu. */
-private val OptionsBg = Color(0xFF1A1410)
+private val OptionsBg = CompanionPalette.Iron
 /** Fill of the "active" pill in the two-option selectors. */
-private val PillActiveBg = Color(0xFF3A2A10)
+private val PillActiveBg = CompanionPalette.BrassFill
 /** Armed state of the "Default settings" button. Same red as the crime toast + harmful effect
  *  dots, so "this is destructive" reads the same way everywhere. */
 private val ResetWarnRed = Color(0xFFC75C5C)
@@ -20893,6 +20800,7 @@ private fun OptionsSubPage(
 
                 // CONTROLS: how the game is driven from the two screens.
                 OptionsPage.CONTROLS -> {
+                    item { RgdsTouchSettings() }
                     // The reference leads the page. It is the only thing here that TEACHES rather
                     // than configures, so it is what someone opening "Controls" for the first time
                     // is most likely to be after — and it is now the sole way in, since the pinned
@@ -23740,6 +23648,7 @@ private fun OptionPill(
             // brief to see on a quick tap and too dark to see on this palette — see the block
             // comment on tapFlash for the measured reason.
             .tapFlash(enabled = enabled) { UiSounds.play(UiSounds.Cue.TOGGLE); onClick() }
+            .heightIn(min = 44.dp)
             .padding(vertical = 8.dp, horizontal = 6.dp),
         contentAlignment = Alignment.Center
     ) {

@@ -10,26 +10,35 @@ val SetupOnOrange = Color(0xFF2B1E10)
 // (settings left-column selected item, the Play button over the logo).
 val AccentLightBlue = Color(0xFF8AB4F8)
 
-// ---- warm stone & bronze palette (simplified launcher) ----
-// MIRRORS the companion UI's palette (CompanionScreen.kt, "palette: warm stone & bronze") so the
-// simplified launcher and the bottom-screen companion read as one app. Those constants are
-// `private` to CompanionScreen.kt and CLAUDE.md forbids modifying them, so the values are
-// duplicated here rather than imported — **if the companion palette ever changes, change these
-// too.** Names match theirs exactly to make that correspondence obvious.
-// (The proper long-term fix is to promote the companion's palette into this file and have
-// CompanionScreen reference it; that's a deliberate refactor of a 12k-line file, not a drive-by.)
-val MwStoneDark = Color(0xFF15120D)   // deep warm background
-val MwStonePanel = Color(0xFF252017)  // raised panel fill
-val MwSlotBg = Color(0xFF1C1812)      // slot / inset fill
-val MwSlotWorn = Color(0xFF3A2E1A)    // active / selected fill (bronze-tinted)
-val MwBronze = Color(0xFF8C6D3F)      // frame border
-val MwBronzeDark = Color(0xFF5A4528)  // inner border / dividers
-val MwBronzeLight = Color(0xFFC9A063) // highlights, selected, headings
-val MwBone = Color(0xFFD8CBB0)        // primary text
-val MwBoneDim = Color(0xFF9A8C70)     // secondary text
-val MwBoneBright = Color(0xFFF2EEE3)  // high-prominence text
-val MwBoneMuted = Color(0xFFBCAF96)   // low-prominence text
-val MwFloatStone = Color(0xF02A2318)  // near-opaque stone for floating panels over the background
+// Shared with the approved brass Aim panel. These are UI colors, never a game/display filter.
+object CompanionPalette {
+    val Iron = Color(0xFF12100D)
+    val IronPlate = Color(0xEB1D1B18)
+    val IronSolid = Color(0xFF1D1B18)
+    val IronDeep = Color(0xFF2C2822)
+    val BrassEdge = Color(0xFF5A4A2E)
+    val Brass = Color(0xFFC9A35A)
+    val BrassBright = Color(0xFFE6C47E)
+    val BrassFill = Color(0xFF3A3021)
+    val Verdigris = Color(0xFF5FA596)
+    val VerdigrisFill = Color(0xFF1F3430)
+    val IronText = Color(0xFFECE3D0)
+    val IronMuted = Color(0xFFA89F8E)
+}
+
+// Existing role names keep inventory, journal, overlays and the launcher on the same palette.
+val MwStoneDark = CompanionPalette.Iron
+val MwStonePanel = CompanionPalette.IronSolid
+val MwSlotBg = CompanionPalette.Iron
+val MwSlotWorn = CompanionPalette.BrassFill
+val MwBronze = CompanionPalette.BrassEdge
+val MwBronzeDark = CompanionPalette.IronDeep
+val MwBronzeLight = CompanionPalette.Brass
+val MwBone = CompanionPalette.IronText
+val MwBoneDim = CompanionPalette.IronMuted
+val MwBoneBright = Color(0xFFF2EEE3)
+val MwBoneMuted = Color(0xFFBFB8AA)
+val MwFloatStone = CompanionPalette.IronSolid.copy(alpha = 0.94f)
 
 val Purple80 = Color(0xFFD0BCFF)
 val PurpleGrey80 = Color(0xFFCCC2DC)

@@ -136,7 +136,7 @@ class UserManageAssets(val context: Context) {
     fun resourcePrepare() {
         val stampFile = File(Constants.VERSION_STAMP)
         val currentStamp = if (stampFile.exists()) stampFile.readText().trim() else ""
-        val targetStamp = BuildConfig.RANDOMIZER.toString()
+        val targetStamp = "rgds-perf1-engine-1.4.6-" + BuildConfig.RANDOMIZER
 
         if (currentStamp == targetStamp) {
             Log.d("ManageAssets", "Version match (stamp: $currentStamp), skipping resource update.")

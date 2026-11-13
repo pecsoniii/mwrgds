@@ -6,6 +6,10 @@ import android.util.Log
 import org.openmw.EngineActivity
 
 object CompanionActions {
+    internal fun rgdsAttack(down: Boolean) = runCommand("CMP:rgds_attack ${if (down) 1 else 0}")
+    internal fun rgdsTrigger(action: String) = runCommand("CMP:rgds_trigger $action")
+    internal fun rgdsActivate() = runCommand("CMP:rgds_activate")
+
 
     fun equipItem(itemId: String) = runCommand("CMP:equip $itemId")
 

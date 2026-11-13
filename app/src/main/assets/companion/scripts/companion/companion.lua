@@ -169,6 +169,7 @@ local function onSave()
 end
 
 local function onLoad(data)
+    emit("COMPANION_GAMEPLAY_ACTIVE:false")
     -- A save written by an older companion build carries no token; mint one now so the rest of the
     -- feature always has an identity to key on.
     saveId = (data and data.saveId) or mintSaveId()
@@ -179,6 +180,41 @@ end
 -- (standing still, full stats) this skips the whole 10 Hz emit; movement/regen still
 -- re-emit promptly because pos/rotZ/stat values are in the string.
 local lastStatsStr = nil
+
+-- One state table keeps this large chunk below LuaJIT's 200-local limit.
+local rgds = {}
+local rgdsInput = require('openmw.input')
+local rgdsAsync = require('openmw.async')
+rgds.attackHeld = false
+rgds.activatePending = false
+rgds.lastUse = nil
+rgdsInput.bindAction('Use', rgdsAsync:callback(function(_, value)
+    return value or (rgds.attackHeld and interfaces.UI.getMode() == nil)
+end), {})
+rgds.triggers = { ToggleWeapon=true, ToggleSpell=true, Jump=true, AlwaysRun=true, ToggleSneak=true }
+
+rgds.controlSettings = require('openmw.storage').playerSection('SettingsOMWControls')
+rgds.lastMovementModes = nil
+rgds.lastReadiedModes = nil
+local function exportMovementModes()
+    -- Read engine stance, including changes made with physical buttons and inventory actions.
+    local stance = types.Actor.getStance(self)
+    local readied = tostring(stance == types.Actor.STANCE.Weapon) .. '|' .. tostring(stance == types.Actor.STANCE.Spell)
+    if readied ~= rgds.lastReadiedModes then
+        rgds.lastReadiedModes = readied
+        emit('COMPANION_RGDS_READIED:' .. readied)
+    end
+    local use = rgdsInput.getBooleanActionValue('Use')
+    if use ~= rgds.lastUse then
+        rgds.lastUse = use
+        emit('COMPANION_RGDS_USE:' .. tostring(use))
+    end
+    local value = tostring(not not rgds.controlSettings:get('alwaysRun')) .. '|' .. tostring(not not self.controls.sneak)
+    if value ~= rgds.lastMovementModes then
+        rgds.lastMovementModes = value
+        emit('COMPANION_MOVEMENT_MODES:' .. value)
+    end
+end
 
 local function exportStats()
     local health = types.Actor.stats.dynamic.health(self)
@@ -3609,6 +3645,19 @@ end
 local function dispatchCommand(command)
     if string.sub(command, 1, 4) ~= "CMP:" then return end
     local payload = string.sub(command, 5)
+    if string.sub(payload, 1, 12) == 'rgds_attack ' then
+        rgds.attackHeld = payload == 'rgds_attack 1' and interfaces.UI.getMode() == nil
+        return
+    end
+    if string.sub(payload, 1, 13) == 'rgds_trigger ' then
+        local action = string.sub(payload, 14)
+        if rgds.triggers[action] and interfaces.UI.getMode() == nil then rgdsInput.activateTrigger(action) end
+        return
+    end
+    if payload == 'rgds_activate' then
+        rgds.activatePending = interfaces.UI.getMode() == nil
+        return
+    end
     -- no-arg commands first
     if payload == "journal" then
         journalExportedCount = -1
@@ -3994,6 +4043,8 @@ end
 -- Container open/close, driven by the omw/ui.lua UiModeChanged event
 -- ({oldMode, newMode, arg}). arg is the container/corpse/NPC being opened.
 local function onUiModeChanged(data)
+    if data.newMode ~= nil then rgds.attackHeld = false; rgds.activatePending = false end
+    emit('COMPANION_GAMEPLAY_ACTIVE:' .. tostring(data.newMode == nil))
     -- GM_MainMenu ("MainMenu") is the pause/options menu (Start button). It is
     -- distinct from Container/Dialogue/Barter/etc., so it uniquely identifies the
     -- pause menu opening and closing.
@@ -4071,35 +4122,49 @@ end
 
 -- ===== Handlers =====
 
+-- The 0.2s exports, run one group per frame over the frames after the tick fires. All of them
+-- in a single frame took ~17 ms on the Duo Lite (40-60 ms at worst), longer than the render it
+-- runs beside, so the main thread waited on Lua every 0.2s. Inventory and character detail are
+-- the two heaviest (~5 and ~4 ms) and sit in different groups. The order is the old one, cut
+-- into pieces, and each export still runs once per tick.
+local SLOW_GROUPS = {
+    { exportSpells, exportSpellChances, exportSelectedSpell },
+    { exportInventory, exportEquipment, exportAmmo, exportEquippedCharge },
+    { exportActiveEffects, exportCharacter, exportCharacterDetail },
+    { exportTarget, exportPlayerStatus, exportDoorMarkers, exportNightWeight, exportWeather, exportDevState },
+}
+local slowGroup = 0
+local journalDue = false
+
 local function onUpdate(dt)
     statsTimer = statsTimer + dt
     if statsTimer >= STATS_INTERVAL then
         statsTimer = 0
         exportStats()
+        exportMovementModes()
     end
     slowTimer = slowTimer + dt
-    if slowTimer >= SLOW_INTERVAL then
+    -- Not restarted mid-way: below ~20 fps the tick would come round again before the last
+    -- group had run, and those exports would never run at all.
+    -- Leave a frame for a due journal export, even when the slow groups run back-to-back.
+    if slowTimer >= SLOW_INTERVAL and slowGroup == 0 and not journalDue then
         slowTimer = 0
-        exportSpells()
-        exportSpellChances()
-        exportSelectedSpell()
-        exportInventory()
-        exportEquipment()
-        exportAmmo()
-        exportEquippedCharge()
-        exportActiveEffects()
-        exportCharacter()
-        exportCharacterDetail()
-        exportTarget()
-        exportPlayerStatus()
-        exportDoorMarkers()
-        exportNightWeight()
-        exportWeather()
-        exportDevState()
+        slowGroup = 1
+    end
+    local ranGroup = false
+    if slowGroup > 0 then
+        for _, fn in ipairs(SLOW_GROUPS[slowGroup]) do fn() end
+        slowGroup = slowGroup < #SLOW_GROUPS and slowGroup + 1 or 0
+        ranGroup = true
     end
     journalTimer = journalTimer + dt
     if journalTimer >= JOURNAL_INTERVAL then
         journalTimer = 0
+        journalDue = true
+    end
+    -- Waits for a frame with no slow group: getQuests() alone is 6-18 ms.
+    if journalDue and not ranGroup then
+        journalDue = false
         exportJournal()
         -- Rides the journal tick rather than the 0.2s slow one: the quest list changes about as
         -- often as the journal does, and both are change-detected, so an unchanged tick costs one
@@ -4118,6 +4183,19 @@ end
 -- paused slow tick). Throttled so a transfer emits ~3 refreshes over ~0.24s, which
 -- covers the async moveInto completing (~1-2 frames).
 local function onFrame(dt)
+    if rgds.activatePending then
+        rgds.activatePending = false
+        if interfaces.UI.getMode() == nil and types.Player.getControlSwitch(self, types.Player.CONTROL_SWITCH.Controls) then
+            local origin = camera.getPosition()
+            local tracked = camera.getTrackedPosition()
+            local reach = core.getGMST('iMaxActivateDist')
+            local direction = camera.viewportToWorldVector(util.vector2(0.5, 0.5))
+            local result = nearby.castRenderingRay(origin, origin + direction * (reach + (origin - tracked):length()), {ignore=self})
+            if result.hitObject and result.hitPos and (result.hitPos - tracked):length() <= reach then
+                result.hitObject:activateBy(self)
+            end
+        end
+    end
     if containerObj and containerReexportTicks > 0 then
         containerRefreshTimer = containerRefreshTimer + dt
         if containerRefreshTimer >= CONTAINER_REFRESH_INTERVAL then
@@ -4130,6 +4208,8 @@ local function onFrame(dt)
 end
 
 local function onActive()
+    rgds.attackHeld = false; rgds.activatePending = false
+    emit('COMPANION_GAMEPLAY_ACTIVE:' .. tostring(interfaces.UI.getMode() == nil))
     -- NOTE: we deliberately do NOT call ui.setConsoleMode("Companion") here any more.
     --
     -- That set the REAL console's persistent mode for the whole session, and console.cpp keys three

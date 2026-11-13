@@ -50,6 +50,8 @@ import android.system.ErrnoException
 import android.system.Os
 import android.util.Log
 import android.view.Choreographer
+import org.openmw.companion.RgdsControls
+import android.view.MotionEvent
 import android.view.KeyEvent
 import android.view.View
 import android.view.ViewGroup
@@ -81,7 +83,6 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -217,7 +218,7 @@ class EngineActivity : SDLActivity() {
     // Bartering is routed to SPLIT (game_ui_bartering == DS).
     private var barterTopView: View? = null
 
-    external fun getLastResourceName(): String
+    external fun getLastResourceName(): String?
     external fun initAlpha3()
     private external fun installCompanionSink()
 
@@ -252,8 +253,25 @@ class EngineActivity : SDLActivity() {
         return sharedObjectName
     }
 
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (RgdsControls.key(event)) return true
+        return super.dispatchKeyEvent(event)
+    }
+
+    override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
+        val filtered = RgdsControls.motion(event) ?: return super.dispatchGenericMotionEvent(event)
+        return try { super.dispatchGenericMotionEvent(filtered) } finally { filtered.recycle() }
+    }
+
+    override fun onPause() {
+        RgdsControls.foreground(false)
+        super.onPause()
+    }
+
     override fun onResume() {
         super.onResume()
+        RgdsControls.init(this)
+        RgdsControls.foreground(true)
         hideSystemBars(this) // fix sometimes systemBars will show again
         // Also from onResume, not just onStart: at onStart the task may not yet count as
         // foreground to ActivityTaskManager, and a start refused for that reason is silently
@@ -282,6 +300,7 @@ class EngineActivity : SDLActivity() {
     // SDLActivity overrides all four callbacks (it pauses/resumes the native render thread),
     // so every override below calls super first.
     override fun onStop() {
+        RgdsControls.foreground(false)
         super.onStop()
         companionBackgrounded = true
         updateCompanionForWindowState("onStop")
@@ -426,6 +445,8 @@ class EngineActivity : SDLActivity() {
     }
 
     override fun onDestroy() {
+        RgdsControls.foreground(false)
+        RgdsControls.updateGameplayState(false)
         super.onDestroy()
 
         hidePauseOverlay()
@@ -460,6 +481,14 @@ class EngineActivity : SDLActivity() {
         }.onFailure {
             Log.e(TAG, "initAlpha3: ", it)
         }
+
+        // Persist gl4es shader conversions between launches (SergeShack v1.4.6 engine).
+        runCatching {
+            val shaderCache = java.io.File(codeCacheDir, "gl4es-shaders")
+            if (shaderCache.isDirectory || shaderCache.mkdirs()) {
+                Os.setenv("LIBGL_SHADERCACHE_DIR", shaderCache.absolutePath, true)
+            }
+        }.onFailure { Log.e(TAG, "shader cache dir", it) }
 
         // Pin the render size BEFORE super.onCreate(), which is where SDLActivity builds the
         // SDLSurface — and SDLSurface's CONSTRUCTOR is what reads these statics and calls
@@ -866,6 +895,7 @@ class EngineActivity : SDLActivity() {
         try {
             Os.setenv("OPENMW_GLES_VERSION", "32", true)
             Os.setenv("LIBGL_ES", "3", true)
+            Os.setenv("SDL_JOYSTICK_ALLOW_BACKGROUND_EVENTS", "1", true)
 
             Os.setenv("UQM_CONFIG_DIR", "${Constants.USER_FILE_STORAGE}/uqm", true)
 
@@ -1142,19 +1172,17 @@ class EngineActivity : SDLActivity() {
         }?.value
     }
 
+    // Hands every sound the engine starts to onSound (rumble patterns, sound log). Polls every
+    // SOUND_POLL_MS instead of on every frame: withFrameNanos asked Compose for a frame on every
+    // vsync for the whole session, which woke the main thread 60 times a second.
+    // getLastResourceName returns all names since the last poll, so none is missed.
     @Composable
     fun SoundWatcher(onSound: (String) -> Unit) {
-        var last by remember { mutableStateOf("") }
-
         LaunchedEffect(Unit) {
             while (true) {
-                withFrameNanos {
-                    val name = getLastResourceName()
-                    if (name.isNotEmpty() && name != last) {
-                        last = name
-                        onSound(name)
-                    }
-                }
+                delay(50L)
+                val names = getLastResourceName() ?: continue
+                names.split('\n').forEach { if (it.isNotEmpty()) onSound(it) }
             }
         }
     }

@@ -3,6 +3,7 @@ package org.openmw.companion
 import android.graphics.Bitmap
 import android.graphics.Matrix
 import android.util.Log
+import java.util.concurrent.Executors
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -45,6 +46,10 @@ object GameStateRepository {
     private val _interiorMapBitmaps = MutableStateFlow<Map<Pair<Int, Int>, InteriorSegment>>(emptyMap())
     private const val MAX_INTERIOR_SEGMENTS = 25
     val interiorMapBitmaps: StateFlow<Map<Pair<Int, Int>, InteriorSegment>> = _interiorMapBitmaps.asStateFlow()
+
+    // Map segments are turned into bitmaps here, off the render thread. One thread keeps them in
+    // arrival order, which the interior (0,0) reset below relies on.
+    private val mapExecutor = Executors.newSingleThreadExecutor { r -> Thread(r, "CompanionMap") }
 
     // In-game Hide UI state (OpenMW's mHudEnabled), pushed from native via
     // EngineActivity.onHudVisibilityChanged whenever the player toggles Hide UI.
@@ -859,10 +864,24 @@ object GameStateRepository {
 
     /**
      * Called from JNI (render thread) when a map segment has been rendered.
-     * Flips the image vertically (OpenGL origin is bottom-left) and stores
-     * the resulting bitmap for the MapPanel to display.
+     * Hands the pixels to [mapExecutor] and returns at once: the conversion below took about
+     * 7 ms per segment on the render thread, and a cell change outdoors renders 3 to 5 segments
+     * in the same frame, which the game then waited for.
      */
     fun onMapTexture(
+        width: Int, height: Int, segX: Int, segY: Int, isInterior: Int,
+        boundsMinX: Float, boundsMinY: Float, angle: Float, centerX: Float, centerY: Float, rgba: ByteArray
+    ) {
+        mapExecutor.execute {
+            storeMapTexture(width, height, segX, segY, isInterior, boundsMinX, boundsMinY, angle, centerX, centerY, rgba)
+        }
+    }
+
+    /**
+     * Flips the image vertically (OpenGL origin is bottom-left) and stores
+     * the resulting bitmap for the MapPanel to display. Runs on [mapExecutor].
+     */
+    private fun storeMapTexture(
         width: Int, height: Int, segX: Int, segY: Int, isInterior: Int,
         boundsMinX: Float, boundsMinY: Float, angle: Float, centerX: Float, centerY: Float, rgba: ByteArray
     ) {
@@ -1504,6 +1523,20 @@ object GameStateRepository {
             trimmed.contains("COMPANION_REQUEST_SETTINGS") -> {
                 _settingsRequest.value = _settingsRequest.value + 1
             }
+            trimmed.contains("COMPANION_RGDS_USE:") -> {
+                Log.d("RgdsControls", "engineUse=" + trimmed.substringAfter("COMPANION_RGDS_USE:").trim())
+            }
+            trimmed.contains("COMPANION_RGDS_READIED:") -> {
+                val modes = trimmed.substringAfter("COMPANION_RGDS_READIED:").trim().split('|')
+                if (modes.size == 2) RgdsControls.updateReadiedModes(modes[0] == "true", modes[1] == "true")
+            }
+            trimmed.contains("COMPANION_MOVEMENT_MODES:") -> {
+                val modes = trimmed.substringAfter("COMPANION_MOVEMENT_MODES:").trim().split('|')
+                if (modes.size == 2) RgdsControls.updateMovementModes(modes[0] == "true", modes[1] == "true")
+            }
+            trimmed.contains("COMPANION_GAMEPLAY_ACTIVE:") -> {
+                RgdsControls.updateGameplayState(trimmed.substringAfter("COMPANION_GAMEPLAY_ACTIVE:").trim() == "true")
+            }
             trimmed.contains("COMPANION_PAUSE_MENU_OPEN") -> {
                 _pauseMenuVisible.value = true
             }
@@ -1516,6 +1549,7 @@ object GameStateRepository {
                 _titleMenuVisible.value = false
             }
             trimmed.contains("COMPANION_TITLE_MENU_OPEN") -> {
+                RgdsControls.updateGameplayState(false)
                 _titleMenuVisible.value = true
             }
             // Native sneak indicator (sneaking && undetected), change-detected in
