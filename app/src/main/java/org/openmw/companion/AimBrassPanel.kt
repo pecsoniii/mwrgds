@@ -157,6 +157,11 @@ internal fun AimBrassPanel(
             MinusIcon, null, 587.dp, 126.dp, size = 40.dp, description = "Zoom the map out",
             dim = RgdsControls.mapZoomLevel <= RgdsControls.MIN_ZOOM_LEVEL
         ) { RgdsControls.zoomMap(-1) }
+        // Flat local map or the engine's 3D view of the place.
+        BrassRound(
+            CubeIcon, if (RgdsControls.map3d) "3D" else "2D", 584.dp, 172.dp, size = 46.dp,
+            active = RgdsControls.map3d, description = "Switch the map between flat and 3D"
+        ) { RgdsControls.toggleMap3d() }
 
         BrassRound(HourglassIcon, "WAIT", 18.dp, 132.dp, size = 56.dp) { RgdsControls.restOrWait() }
         // Ammo stays selectable before loading a bow and after the last arrow is fired.

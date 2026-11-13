@@ -34,6 +34,17 @@ object CompanionActions {
     // Opens the in-game world map (Lua handles CMP:openmap via AddUiMode).
     fun openWorldMap() = runCommand("CMP:openmap")
 
+    /**
+     * RG DS 3D local map: everything the engine's map camera needs, in one command. The engine draws
+     * a new picture when this changes or the player moves; [distance] is from the focus in world
+     * units, [yaw] the heading in degrees (0 = north up), [panX]/[panY] move the focus from the
+     * player in world units, and [width] x [height] is the picture in pixels.
+     */
+    fun map3dView(on: Boolean, distance: Float, yaw: Float, panX: Float, panY: Float, width: Int, height: Int) =
+        EngineActivity.sendCompanionCommand(Map3DMath.viewCommand(on, distance, yaw, panX, panY, width, height))
+
+    fun map3dOff() = EngineActivity.sendCompanionCommand("CMP:map3d:off")
+
     // Quest completion status is C++-only (androidmain.cpp handles this natively,
     // NOT Lua); reply arrives as a streamed COMPANION_JOURNAL_FINISHED_* block.
     fun refreshQuestStatus() = runCommand("CMP:questStatus")

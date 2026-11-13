@@ -75,6 +75,13 @@ internal object RgdsControls {
         // states of the Run/Walk toggle. Without it the D-pad follows the toggle like every input.
         controller.walk = walk; controller.faceLook = faceLook; controller.shiftToRun = false
         mapZoomLevel = prefs!!.getInt("map_zoom_level", 0).coerceIn(MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL)
+        map3d = prefs!!.getBoolean("map_3d", false)
+    }
+    /** The HUD minimap shows the engine's 3D view of the place instead of the flat local map. */
+    var map3d by mutableStateOf(false); private set
+    fun toggleMap3d() {
+        map3d = !map3d
+        prefs?.edit()?.putBoolean("map_3d", map3d)?.apply()
     }
     /** The HUD minimap's zoom in x1.25 steps from the old Field map (level 0): -3 is ~0.5x, 5 ~3x. */
     var mapZoomLevel by mutableIntStateOf(0); private set

@@ -13980,6 +13980,11 @@ internal fun HudMapLayer(
     onLook: (Offset?) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    // RG DS: the engine's 3D view of the place instead of the flat local map.
+    if (RgdsControls.map3d) {
+        HudMap3DLayer(state, splashVisible, zoom, onLook, modifier)
+        return
+    }
     val exteriorMaps by GameStateRepository.exteriorMapBitmaps.collectAsState()
     val interiorMaps by GameStateRepository.interiorMapBitmaps.collectAsState()
 
@@ -14261,6 +14266,189 @@ internal fun HudMapLayer(
                             (mapBoxSize.height / 2f + sy * t - half).roundToInt()
                         )
                     }
+                    .size(20.dp)
+                    .clip(CircleShape)
+                    .background(CompanionPalette.IronSolid.copy(alpha = 0.85f))
+                    .border(1.dp, CompanionPalette.BrassEdge, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("N", color = CompanionPalette.BrassBright, fontSize = 11.sp, fontFamily = MwDisplay, lineHeight = 11.sp)
+            }
+        }
+    }
+}
+
+/** Camera distance for the 3D HUD map at zoom 1, in world units (a cell is 8192). */
+private const val MAP3D_BASE_DISTANCE = 2400f
+
+/** The largest picture side the 3D map asks the engine for; the engine caps it at 640 too. */
+private const val MAP3D_MAX_SIDE = 640
+
+/**
+ * RG DS: the HUD minimap as the engine's 3D view (companionmap3d.cpp in the engine). The engine draws
+ * a picture of the place from above at an angle, north up, when the player moves or the zoom
+ * changes, and sends it with its camera matrix; the player arrow and the door markers are placed
+ * here from their live positions through that matrix, so they move smoothly between pictures.
+ * Taps and drags behave as on the flat map: a drag turns the view, a tap on a door shows its name,
+ * any other tap opens the world map.
+ */
+@OptIn(InternalCoroutinesApi::class)
+@Composable
+private fun HudMap3DLayer(
+    state: GameState,
+    splashVisible: Boolean,
+    zoom: Float,
+    onLook: (Offset?) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val picture by GameStateRepository.map3d.collectAsState()
+    val doorMarkers by GameStateRepository.doorMarkers.collectAsState()
+    var boxSize by remember { mutableStateOf(IntSize.Zero) }
+    var selectedMarker by remember { mutableStateOf<DoorMarker?>(null) }
+    LaunchedEffect(selectedMarker) {
+        if (selectedMarker != null) {
+            delay(DOOR_MARKER_POPUP_MS)
+            selectedMarker = null
+        }
+    }
+    val compassBitmap = rememberItemIcon("textures/compass.dds")
+
+    // Ask for pictures the size of the panel (scaled down to fit the cap), and stop when it goes.
+    val distance = MAP3D_BASE_DISTANCE / zoom
+    LaunchedEffect(boxSize, distance) {
+        if (boxSize.width <= 0 || boxSize.height <= 0) return@LaunchedEffect
+        val (w, h) = Map3DMath.pictureSize(boxSize.width, boxSize.height, MAP3D_MAX_SIDE)
+        runCatching { CompanionActions.map3dView(true, distance, 0f, 0f, 0f, w, h) }
+    }
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { CompanionActions.map3dOff() }
+            GameStateRepository.clearMap3D()
+        }
+    }
+
+    val image = remember(picture) { picture?.bitmap?.asImageBitmap() }
+    val mapReady = state.journalEntries.isNotEmpty()
+
+    fun screenOf(p: GameStateRepository.Map3DPicture, x: Float, y: Float, z: Float, w: Float, h: Float): Offset? {
+        val uv = p.project(x, y, z) ?: return null
+        return Offset(uv.u * w, uv.v * h)
+    }
+
+    Box(modifier.onSizeChanged { boxSize = it }) {
+        Canvas(
+            Modifier
+                .fillMaxSize()
+                .pointerInput(picture, doorMarkers, splashVisible, mapReady) {
+                    detectTapGestures { tap ->
+                        if (splashVisible) return@detectTapGestures
+                        val p = picture
+                        val w = size.width.toFloat(); val h = size.height.toFloat()
+                        val hitR = minOf(w, h) * 0.06f
+                        val hit = if (p == null) null else doorMarkers
+                            .mapNotNull { m -> screenOf(p, m.worldX, m.worldY, p.focusZ, w, h)?.let { m to it } }
+                            .filter { (_, o) -> (o - tap).getDistance() <= hitR }
+                            .minByOrNull { (_, o) -> (o - tap).getDistance() }
+                        when {
+                            hit != null -> selectedMarker = if (selectedMarker == hit.first) null else hit.first
+                            selectedMarker != null -> selectedMarker = null
+                            mapReady -> CompanionActions.openWorldMap()
+                        }
+                    }
+                }
+                .fieldLookDrag(enabled = !splashVisible, onLook = onLook)
+        ) {
+            val p = picture
+            val img = image
+            if (p == null || img == null) return@Canvas
+            drawImage(
+                image = img,
+                srcOffset = IntOffset.Zero,
+                srcSize = IntSize(img.width, img.height),
+                dstOffset = IntOffset.Zero,
+                dstSize = IntSize(size.width.toInt(), size.height.toInt()),
+            )
+
+            // Door markers, at the height the picture was drawn from.
+            val half = size.minDimension * 0.022f
+            doorMarkers.forEach { m ->
+                val o = screenOf(p, m.worldX, m.worldY, p.focusZ, size.width, size.height) ?: return@forEach
+                if (o.x < -half || o.x > size.width + half || o.y < -half || o.y > size.height + half) return@forEach
+                val sel = selectedMarker == m
+                val topLeft = Offset(o.x - half, o.y - half)
+                val sz = Size(half * 2f, half * 2f)
+                drawRect(color = SlotBg, topLeft = topLeft, size = sz)
+                drawRect(
+                    color = if (sel) BoneBright else BronzeLight, topLeft = topLeft, size = sz,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = half * (if (sel) 0.55f else 0.35f))
+                )
+            }
+
+            // The player, at the live position; the arrow points along the facing as the camera sees it.
+            val at = screenOf(p, state.pos.x, state.pos.y, state.pos.z, size.width, size.height) ?: return@Canvas
+            val ahead = screenOf(
+                p, state.pos.x + sin(state.rotZ) * 96f, state.pos.y + cos(state.rotZ) * 96f, state.pos.z,
+                size.width, size.height
+            )
+            val deg = if (ahead == null) 0f
+            else Math.toDegrees(kotlin.math.atan2((ahead.x - at.x).toDouble(), (at.y - ahead.y).toDouble())).toFloat()
+            val bmp = compassBitmap
+            if (bmp != null) {
+                val side = size.minDimension * 0.12f
+                rotate(degrees = deg, pivot = at) {
+                    drawImage(
+                        image = bmp,
+                        dstOffset = IntOffset((at.x - side / 2f).toInt(), (at.y - side / 2f).toInt()),
+                        dstSize = IntSize(side.toInt(), side.toInt()),
+                    )
+                }
+            } else {
+                drawArrow(at.x, at.y, size.minDimension * 0.04f, deg)
+            }
+        }
+
+        if (boxSize.width > 0 && boxSize.height > 0) selectedMarker?.let { marker ->
+            val p = picture ?: return@let
+            val o = screenOf(p, marker.worldX, marker.worldY, p.focusZ, boxSize.width.toFloat(), boxSize.height.toFloat())
+                ?: return@let
+            Box(
+                Modifier
+                    .align(Alignment.TopStart)
+                    .offset {
+                        IntOffset(
+                            (o.x - 80.dp.toPx()).roundToInt().coerceAtLeast(4),
+                            (o.y - 46.dp.toPx()).roundToInt().coerceAtLeast(4)
+                        )
+                    }
+                    .widthIn(max = 160.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(StoneDark)
+                    .border(1.dp, Bronze, RoundedCornerShape(4.dp))
+                    .pointerInput(Unit) { detectTapGestures { selectedMarker = null } }
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
+            ) {
+                Text(
+                    marker.name.ifBlank { "Door" },
+                    color = BoneBright, fontSize = 12.sp, fontFamily = MwBody,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 14.sp
+                )
+            }
+        }
+
+        if (picture == null && state.hasData) {
+            Text(
+                "Drawing the 3D map…",
+                color = BronzeDark, fontSize = 13.sp, fontFamily = MwBody,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+        // North is always up in the 3D view.
+        if (picture != null) {
+            Box(
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 6.dp)
                     .size(20.dp)
                     .clip(CircleShape)
                     .background(CompanionPalette.IronSolid.copy(alpha = 0.85f))

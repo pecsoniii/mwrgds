@@ -863,6 +863,52 @@ object GameStateRepository {
     }
 
     /**
+     * RG DS 3D local map: the latest picture from the engine's map camera. [matrix] is row-major and
+     * takes a world position as a row vector (x, y, z, 1) to clip space, as OSG does.
+     */
+    class Map3DPicture(
+        val bitmap: Bitmap,
+        val matrix: FloatArray,
+        val focusX: Float,
+        val focusY: Float,
+        val focusZ: Float,
+        val distance: Float,
+        val yaw: Float,
+        val interior: Boolean,
+        val sequence: Int,
+    ) {
+        /** Where a world position shows in the picture, 0..1 across and down, or null behind the camera. */
+        fun project(x: Float, y: Float, z: Float): Map3DPoint? = Map3DMath.project(matrix, x, y, z)
+    }
+
+    private val _map3d = MutableStateFlow<Map3DPicture?>(null)
+    val map3d: StateFlow<Map3DPicture?> = _map3d.asStateFlow()
+
+    fun clearMap3D() {
+        _map3d.value = null
+    }
+
+    /** Called from the engine's map delivery thread. The bitmap is built on [mapExecutor]. */
+    fun onMap3D(width: Int, height: Int, matrix: FloatArray, params: FloatArray, sequence: Int, rgba: ByteArray) {
+        if (width <= 0 || height <= 0 || rgba.size < width * height * 4 || matrix.size < 16 || params.size < 6) return
+        mapExecutor.execute {
+            // Alpha-blended surfaces leave partial alpha in the framebuffer; the map is opaque.
+            var i = 3
+            while (i < rgba.size) {
+                rgba[i] = -1
+                i += 4
+            }
+            // ARGB_8888 is laid out R, G, B, A in memory, the same order as the GL read-back.
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            bitmap.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgba, 0, width * height * 4))
+            _map3d.value = Map3DPicture(
+                bitmap, matrix.copyOf(), params[0], params[1], params[2], params[3], params[4],
+                params[5] != 0f, sequence
+            )
+        }
+    }
+
+    /**
      * Called from JNI (render thread) when a map segment has been rendered.
      * Hands the pixels to [mapExecutor] and returns at once: the conversion below took about
      * 7 ms per segment on the render thread, and a cell change outdoors renders 3 to 5 segments

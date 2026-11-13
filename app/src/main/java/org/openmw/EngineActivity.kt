@@ -1027,6 +1027,19 @@ class EngineActivity : SDLActivity() {
             GameStateRepository.onGlobalMapOverlay(width, height, rgba)
         }
 
+        /**
+         * RG DS 3D local map: one picture, rows top-down, from the engine's map camera, with the
+         * row-major matrix that takes a world position (x, y, z, 1) as a row vector to clip space.
+         * params = focus x, y, z, distance, yaw degrees, interior (0/1). Called from the engine's
+         * map delivery thread, never the draw thread.
+         */
+        @JvmStatic
+        fun onCompanionMap3D(
+            width: Int, height: Int, matrix: FloatArray, params: FloatArray, sequence: Int, rgba: ByteArray
+        ) {
+            GameStateRepository.onMap3D(width, height, matrix, params, sequence, rgba)
+        }
+
         /** DS map: one segment's fog mask. ALPHA_8 — 1024 bytes for a 32x32 segment. */
         @JvmStatic
         fun onCompanionMapFog(
@@ -1258,6 +1271,8 @@ class EngineActivity : SDLActivity() {
         // Install in-process log sink so COMPANION_* lines go directly to Kotlin.
         runCatching { installCompanionSink() }
             .onFailure { Log.e(TAG, "installCompanionSink failed", it) }
+        // RG DS: logcat frame statistics, only while OpenMW-DS/config/rgds-perf-log exists.
+        runCatching { RgdsPerfLog.startIfEnabled() }
 
         // TWO possible hosts for the same CompanionScreen composable.
         //

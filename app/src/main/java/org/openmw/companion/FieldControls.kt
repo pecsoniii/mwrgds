@@ -56,6 +56,7 @@ internal val UseIcon = strokeIcon("use",
 internal val ForwardIcon = strokeIcon("forward", "M12 4 L19 19 L12 15 L5 19 Z")
 internal val PlusIcon = strokeIcon("plus", "M12 5 V19 M5 12 H19")
 internal val MinusIcon = strokeIcon("minus", "M5 12 H19")
+internal val CubeIcon = strokeIcon("cube", "M12 3 L20 7.5 L20 16.5 L12 21 L4 16.5 L4 7.5 Z", "M4 7.5 L12 12 L20 7.5 M12 12 L12 21")
 internal val AutoRunIcon =strokeIcon("autorun", "M6 12 L12 6 L18 12", "M6 19 L12 13 L18 19")
 internal val AttackIcon = strokeIcon("attack",
     "M20 4 L10 14 M20 4 L17 4 M20 4 L20 7 M7 11 L13 17 M10 14 L5 19",
