@@ -873,27 +873,62 @@ object GameStateRepository {
     private val _map3d = MutableStateFlow<Map3DPicture?>(null)
     val map3d: StateFlow<Map3DPicture?> = _map3d.asStateFlow()
 
-    fun clearMap3D() {
+    private val map3dLock = Any()
+    private var map3dGeneration = 0L
+    private var pendingMap3d: (() -> Unit)? = null
+    private var map3dWorkerScheduled = false
+
+    fun clearMap3D() = synchronized(map3dLock) {
+        ++map3dGeneration
+        pendingMap3d = null
         _map3d.value = null
     }
 
     /** Called from the engine's map delivery thread. The bitmap is built on [mapExecutor]. */
     fun onMap3D(width: Int, height: Int, matrix: FloatArray, params: FloatArray, sequence: Int, rgba: ByteArray) {
         if (width <= 0 || height <= 0 || rgba.size < width * height * 4 || matrix.size < 16 || params.size < 6) return
-        mapExecutor.execute {
-            // Alpha-blended surfaces leave partial alpha in the framebuffer; the map is opaque.
-            var i = 3
-            while (i < rgba.size) {
-                rgba[i] = -1
-                i += 4
+        synchronized(map3dLock) {
+            val generation = map3dGeneration
+            pendingMap3d = {
+                // Alpha-blended surfaces leave partial alpha in the framebuffer; the map is opaque.
+                var i = 3
+                while (i < rgba.size) {
+                    rgba[i] = -1
+                    i += 4
+                }
+                // ARGB_8888 is laid out R, G, B, A in memory, the same order as the GL read-back.
+                val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                bitmap.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgba, 0, width * height * 4))
+                synchronized(map3dLock) {
+                    if (generation == map3dGeneration) {
+                        _map3d.value = Map3DPicture(
+                            bitmap, matrix.copyOf(), params[0], params[1], params[2], params[3], params[4],
+                            params[5] != 0f, sequence
+                        )
+                    } else {
+                        bitmap.recycle()
+                    }
+                }
             }
-            // ARGB_8888 is laid out R, G, B, A in memory, the same order as the GL read-back.
-            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-            bitmap.copyPixelsFromBuffer(java.nio.ByteBuffer.wrap(rgba, 0, width * height * 4))
-            _map3d.value = Map3DPicture(
-                bitmap, matrix.copyOf(), params[0], params[1], params[2], params[3], params[4],
-                params[5] != 0f, sequence
-            )
+            if (!map3dWorkerScheduled) {
+                map3dWorkerScheduled = true
+                mapExecutor.execute(::convertPendingMap3D)
+            }
+        }
+    }
+
+    private fun convertPendingMap3D() {
+        val convert = synchronized(map3dLock) {
+            pendingMap3d.also { pendingMap3d = null }
+        }
+        try {
+            convert?.invoke()
+        } finally {
+            synchronized(map3dLock) {
+                // Let queued 2D tiles run between 3D conversions.
+                if (pendingMap3d == null) map3dWorkerScheduled = false
+                else mapExecutor.execute(::convertPendingMap3D)
+            }
         }
     }
 
