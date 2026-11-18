@@ -1344,14 +1344,21 @@ private fun CompanionScreenContent() {
 
     // The HUD's followed-quest label navigates to that quest's journal page, which lives in
     // another tab — switch to it here (JournalPanel consumes the request once it composes).
+    var showQuestman by remember { mutableStateOf(false) }
     val pendingQuestNav = JournalQuestNavState.questId
     LaunchedEffect(pendingQuestNav) {
-        if (pendingQuestNav != null) tab = Tab.JOURNAL
+        if (pendingQuestNav != null) {
+            showQuestman = false
+            tab = Tab.JOURNAL
+        }
     }
-    // Same trip, but for the empty tracked-quest slot: the QUESTS list itself, nothing selected.
+
     val pendingQuestList = JournalQuestNavState.listRequest
     LaunchedEffect(pendingQuestList) {
-        if (pendingQuestList > 0) tab = Tab.JOURNAL
+        if (pendingQuestList > 0) {
+            showQuestman = false
+            tab = Tab.JOURNAL
+        }
     }
 
     Box(
@@ -1378,19 +1385,21 @@ private fun CompanionScreenContent() {
                 modifier = Modifier.padding(bottom = BOTTOM_BAR_SPACE.dp)
             )
             Tab.STATS -> StatsPanel(state, onSelectStat = { selectedStat = it })
-            Tab.JOURNAL -> JournalPanel()
+            Tab.JOURNAL -> if (showQuestman && state.character.name.isNotBlank()) {
+                QuestmanPanel(
+                    modifier = Modifier.padding(bottom = BOTTOM_BAR_SPACE.dp),
+                    onClose = { tab = Tab.HUD },
+                    fallback = { JournalPanel() }
+                )
+            } else JournalPanel()
         }
 
         BottomTabBar(
             selected = tab,
             onSelect = {
-                if (it == Tab.JOURNAL && state.character.name.isNotBlank()) {
-                    // Use OpenMW's Journal action so registered replacements such as Questman run.
-                    CompanionActions.rgdsTrigger("Journal")
-                } else {
-                    if (it == Tab.JOURNAL) JournalResetState.request()
-                    tab = it
-                }
+                showQuestman = it == Tab.JOURNAL
+                if (it == Tab.JOURNAL) JournalResetState.request()
+                tab = it
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)

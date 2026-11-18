@@ -1013,6 +1013,8 @@ object GameStateRepository {
 
     /** Called for every COMPANION_* line (via onJniLine, the sole transport). */
     fun onRawLine(line: String) {
+        if (QuestmanRepository.receive(line)) return
+        if (QuestmanRepository.receive(line)) return
         val trimmed = line.trimEnd()
         if (trimmed.contains("COMPANION_DEBUG")) Log.d("CompanionRepo", trimmed)
         when {

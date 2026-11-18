@@ -3642,9 +3642,85 @@ local function exportNightWeight()
     emit(line)
 end
 
+-- Questman owns classification, aliases and per-save flags. The companion requests one view
+-- at a time and the request id keeps late view replies from replacing current content.
+function rgds.questman(payload)
+    local request, section, limit, questId, pin, refresh =
+        payload:match('^(%d+)|(%a+)|(%d+)|([^|]*)|([^|]*)|([01])$')
+    if not request then return end
+    if section ~= 'quests' and section ~= 'detail' and section ~= 'feed' and section ~= 'notes' then return end
+    limit = tonumber(limit)
+    if not limit or limit < 1 then return end
+
+    local function field(value)
+        return (tostring(value or ''):gsub('[%%|\r\n]', {
+            ['%'] = '%25', ['|'] = '%7C', ['\r'] = '%0D', ['\n'] = '%0A',
+        }))
+    end
+    local function reply(kind, ...)
+        local fields = { ... }
+        for i, value in ipairs(fields) do fields[i] = field(value) end
+        emit('COMPANION_QUESTMAN:' .. request .. '|' .. kind .. '|' .. table.concat(fields, '|'))
+    end
+
+    local provider = interfaces.QuestmanData
+    if not provider or provider.version ~= 1 then
+        reply('unavailable')
+        return
+    end
+
+    questId = questId:gsub('%%(%x%x)', function(hex) return string.char(tonumber(hex, 16)) end)
+    local ok, errorText = pcall(function()
+        if refresh == '1' then provider.invalidate() end
+        if (pin == '1' or pin == '0') and provider.getQuest(questId) then
+            if provider.isPinned(questId) ~= (pin == '1') then provider.togglePin(questId) end
+        end
+
+        reply('begin')
+        if section == 'quests' then
+            local quests = {}
+            for i, q in ipairs(provider.getQuests()) do quests[i] = q end
+            table.sort(quests, function(a, b)
+                if a.recency ~= b.recency then return (a.recency or 0) > (b.recency or 0) end
+                if a.name ~= b.name then return a.name < b.name end
+                return a.id < b.id
+            end)
+            for _, q in ipairs(quests) do
+                reply('quest', q.id, q.name, q.giver or '', q.pinned and 1 or 0,
+                    q.completed and 1 or 0, q.hidden and 1 or 0)
+            end
+            reply('end', 0)
+            return
+        end
+        if section == 'detail' and provider.getQuest(questId) then provider.setLastViewed(questId) end
+        local feed = provider.getJournalFeed()
+        local count = 0
+        for i = #feed, 1, -1 do
+            local entry = feed[i]
+            if section == 'feed' or (section == 'notes' and entry.record)
+                or (section == 'detail' and entry.questId == questId)
+            then
+                count = count + 1
+                if count > limit then break end
+                local date = entry.day and ('Day ' .. entry.day) or ''
+                reply('entry', section == 'detail' and '' or (entry.questName or ''), date, entry.text or '')
+            end
+        end
+        reply('end', count > limit and 1 or 0)
+    end)
+    if not ok then
+        print('[Questman companion] ' .. tostring(errorText))
+        reply('unavailable')
+    end
+end
+
 local function dispatchCommand(command)
     if string.sub(command, 1, 4) ~= "CMP:" then return end
     local payload = string.sub(command, 5)
+    if string.sub(payload, 1, 9) == 'questman ' then
+        rgds.questman(string.sub(payload, 10))
+        return
+    end
     if string.sub(payload, 1, 12) == 'rgds_attack ' then
         rgds.attackHeld = payload == 'rgds_attack 1' and interfaces.UI.getMode() == nil
         return
