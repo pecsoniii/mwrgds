@@ -191,7 +191,7 @@ rgds.lastUse = nil
 rgdsInput.bindAction('Use', rgdsAsync:callback(function(_, value)
     return value or (rgds.attackHeld and interfaces.UI.getMode() == nil)
 end), {})
-rgds.triggers = { ToggleWeapon=true, ToggleSpell=true, Jump=true, AlwaysRun=true, ToggleSneak=true }
+rgds.triggers = { ToggleWeapon=true, ToggleSpell=true, Jump=true, AlwaysRun=true, ToggleSneak=true, Journal=true }
 
 rgds.controlSettings = require('openmw.storage').playerSection('SettingsOMWControls')
 rgds.lastMovementModes = nil

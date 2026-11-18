@@ -1384,11 +1384,13 @@ private fun CompanionScreenContent() {
         BottomTabBar(
             selected = tab,
             onSelect = {
-                // Tapping JOURNAL always returns it to the chronological journal view, including
-                // when it's already the selected tab (where the panel stays composed and would
-                // otherwise keep showing whatever detail page was open).
-                if (it == Tab.JOURNAL) JournalResetState.request()
-                tab = it
+                if (it == Tab.JOURNAL && state.character.name.isNotBlank()) {
+                    // Use OpenMW's Journal action so registered replacements such as Questman run.
+                    CompanionActions.rgdsTrigger("Journal")
+                } else {
+                    if (it == Tab.JOURNAL) JournalResetState.request()
+                    tab = it
+                }
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
