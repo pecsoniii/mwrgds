@@ -78,6 +78,7 @@ internal fun QuestmanPanel(
     var limit by remember(saveId) { mutableIntStateOf(QuestmanRepository.PageSize) }
     var showAll by remember(saveId) { mutableStateOf(false) }
     var fallbackOpen by remember(saveId) { mutableStateOf(false) }
+    var slowRequest by remember { mutableStateOf(false) }
     var timedOut by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     var refreshData by remember { mutableStateOf(true) }
@@ -88,6 +89,7 @@ internal fun QuestmanPanel(
     val listState = key(saveId, pageKind, selected?.id) { rememberLazyListState() }
 
     LaunchedEffect(saveId, pageKind, selected?.id, limit, refresh) {
+        slowRequest = false
         timedOut = false
         val pin = pinChange
         QuestmanRepository.request(pageKind, limit, pin?.id ?: selected?.id, pinned = pin?.let { !it.pinned },
@@ -95,6 +97,9 @@ internal fun QuestmanPanel(
         pinChange = null
         refreshData = false
         delay(5000)
+        if (QuestmanRepository.page.value != null) return@LaunchedEffect
+        slowRequest = true
+        delay(25000)
         if (QuestmanRepository.page.value == null) timedOut = true
     }
     val back by rememberUpdatedState<() -> Unit> {
@@ -144,7 +149,9 @@ internal fun QuestmanPanel(
 
         val current = page
         when {
-            current == null && !timedOut -> QuestmanMessage("Loading Questmanâ€¦")
+            current == null && !timedOut -> QuestmanMessage(
+                if (slowRequest) "Preparing quest history..." else "Loading Questman..."
+            )
             current == null || !current.available -> {
                 QuestmanMessage(if (timedOut) "Questman hasnâ€™t responded." else "Questman is unavailable.")
                 TextButton(onClick = { fallbackOpen = true }) { Text("Open companion journal") }
