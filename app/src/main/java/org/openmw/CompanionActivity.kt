@@ -1,5 +1,8 @@
 package org.openmw
 
+import android.view.KeyEvent
+import org.openmw.companion.QuestmanBack
+
 import android.app.ActivityManager
 import android.graphics.PixelFormat
 import android.os.Build
@@ -79,6 +82,9 @@ import org.openmw.companion.CompanionScreen
  * DS map, popup self-dimming) is identical either way.
  */
 class CompanionActivity : ComponentActivity() {
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+        QuestmanBack.handle(event) || super.dispatchKeyEvent(event)
+
 
     /** One-shot guard for [dropFocusabilityOnceFocused], reset per foreground pass by [onStart]. */
     private var focusabilityDropped = false

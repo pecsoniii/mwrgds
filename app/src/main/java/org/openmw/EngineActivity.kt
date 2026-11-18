@@ -20,6 +20,7 @@ import org.openmw.companion.OptionsMenuOverlay
 import org.openmw.companion.UiSounds
 import org.openmw.companion.ConversationLocation
 import org.openmw.companion.GameUiMode
+import org.openmw.companion.QuestmanBack
 import org.openmw.companion.AlchemyTopOverlay
 import org.openmw.companion.EnchantingTopOverlay
 import org.openmw.companion.SpellmakingTopOverlay
@@ -254,7 +255,7 @@ class EngineActivity : SDLActivity() {
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
-        if (RgdsControls.key(event)) return true
+        if (QuestmanBack.handle(event) || RgdsControls.key(event)) return true
         return super.dispatchKeyEvent(event)
     }
 

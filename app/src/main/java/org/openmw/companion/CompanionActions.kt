@@ -31,7 +31,6 @@ object CompanionActions {
 
     fun refreshJournal() = runCommand("CMP:journal")
     internal fun requestQuestman(payload: String) = runCommand("CMP:questman $payload")
-    internal fun requestQuestman(payload: String) = runCommand("CMP:questman $payload")
 
     // Opens the in-game world map (Lua handles CMP:openmap via AddUiMode).
     fun openWorldMap() = runCommand("CMP:openmap")

@@ -3,6 +3,9 @@ package org.openmw.companion
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -20249,7 +20252,8 @@ private fun BottomTabBar(
             .clip(RoundedCornerShape(3.dp))
             .background(FloatStone)
             .border(2.dp, Bronze, RoundedCornerShape(3.dp))
-            .padding(4.dp),
+            .padding(4.dp)
+            .selectableGroup(),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
         Tab.entries.forEach { t ->
@@ -20264,7 +20268,7 @@ private fun BottomTabBar(
                         if (isSel) BronzeLight else BronzeDark,
                         RoundedCornerShape(2.dp)
                     )
-                    .clickable { onSelect(t) }
+                    .selectable(selected = isSel, role = Role.Tab) { onSelect(t) }
                     .heightIn(min = 30.dp)
                     .padding(vertical = 3.dp),
                 contentAlignment = Alignment.Center

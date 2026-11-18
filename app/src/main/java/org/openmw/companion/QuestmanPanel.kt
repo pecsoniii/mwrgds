@@ -1,5 +1,6 @@
 package org.openmw.companion
 
+import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -25,6 +26,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +39,26 @@ import org.openmw.ui.theme.MwBone
 import org.openmw.ui.theme.MwBoneDim
 import org.openmw.ui.theme.MwBronzeDark
 import org.openmw.ui.theme.MwStoneDark
+
+/** Shared by the two activities. Native menus retain their own controller handling. */
+internal object QuestmanBack {
+    var onBack: (() -> Unit)? = null
+    private var consumedKey: Int? = null
+
+    fun handle(event: KeyEvent): Boolean {
+        val code = event.keyCode
+        if (code != KeyEvent.KEYCODE_BUTTON_B && code != KeyEvent.KEYCODE_BACK) return false
+        if (consumedKey == code) {
+            if (event.action == KeyEvent.ACTION_UP) consumedKey = null
+            return true
+        }
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount != 0 || !RgdsControls.gameplay) return false
+        val callback = onBack ?: return false
+        consumedKey = code
+        callback()
+        return true
+    }
+}
 
 private enum class QuestmanSection(val label: String, val wireName: String) {
     Quests("Quests", "quests"), Journal("Journal", "feed"), Notes("Notes", "notes")
@@ -75,8 +97,22 @@ internal fun QuestmanPanel(
         delay(5000)
         if (QuestmanRepository.page.value == null) timedOut = true
     }
+    val back by rememberUpdatedState<() -> Unit> {
+        when {
+            fallbackOpen -> fallbackOpen = false
+            selected == null -> onClose()
+            else -> {
+                selected = null
+                limit = QuestmanRepository.PageSize
+            }
+        }
+    }
     DisposableEffect(Unit) {
-        onDispose { QuestmanRepository.clear() }
+        QuestmanBack.onBack = { back() }
+        onDispose {
+            QuestmanBack.onBack = null
+            QuestmanRepository.clear()
+        }
     }
 
     if (fallbackOpen) {
@@ -88,13 +124,7 @@ internal fun QuestmanPanel(
         modifier.fillMaxSize().background(MwStoneDark).padding(horizontal = 12.dp, vertical = 6.dp)
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            TextButton(onClick = {
-                if (selected == null) onClose()
-                else {
-                    selected = null
-                    limit = QuestmanRepository.PageSize
-                }
-            }) { Text(if (selected == null) "Close" else "Back") }
+            TextButton(onClick = back) { Text(if (selected == null) "Close" else "Back") }
             Text(
                 title, Modifier.weight(1f).padding(horizontal = 8.dp),
                 color = MwBone, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 2
