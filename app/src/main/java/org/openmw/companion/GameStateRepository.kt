@@ -1,7 +1,6 @@
 package org.openmw.companion
 
 import android.graphics.Bitmap
-import android.graphics.Matrix
 import android.util.Log
 import java.util.concurrent.Executors
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -577,17 +576,9 @@ object GameStateRepository {
     private val _mapFog = MutableStateFlow<Map<Triple<Int, Int, Boolean>, Bitmap>>(emptyMap())
     val mapFog: StateFlow<Map<Triple<Int, Int, Boolean>, Bitmap>> = _mapFog.asStateFlow()
 
-    /** OpenGL row 0 is the BOTTOM row; an Android Bitmap's row 0 is the TOP. Every image coming out
-     *  of the engine needs this — onMapTexture has always done it for the local segments, and the
-     *  two world-map layers were missing it, which rendered the world map upside down. Flipping the
-     *  IMAGE (rather than inverting the coordinate maths) keeps the marker formulas, which already
-     *  assume a top-down image, correct. */
-    private fun flipVertically(src: Bitmap): Bitmap {
-        val m = Matrix().apply { preScale(1f, -1f) }
-        val out = Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, false)
-        if (out != src) src.recycle()
-        return out
-    }
+    /** OpenGL supplies bottom-up rows. Read them backwards into the final bitmap. */
+    private fun mapBitmap(pixels: IntArray, width: Int, height: Int): Bitmap =
+        Bitmap.createBitmap(pixels, pixels.size - width, -width, width, height, Bitmap.Config.ARGB_8888)
 
     /** Called from native on the engine thread with the static world-map terrain (RGB or RGBA). */
     fun onGlobalMapBase(
@@ -606,8 +597,7 @@ object GameStateRepository {
         }
         // NEVER recycle the outgoing bitmap here: this runs on the ENGINE thread while Compose
         // may be drawing that very bitmap on the UI thread (see clearMapDs for the full note).
-        _globalMapBase.value = flipVertically(
-            Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888))
+        _globalMapBase.value = mapBitmap(pixels, width, height)
         _globalMapInfo.value = GlobalMapInfo(width, height, minX, minY, cellPixels)
     }
 
@@ -624,8 +614,7 @@ object GameStateRepository {
             pixels[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
         }
         // Same as onGlobalMapBase: no recycle of the outgoing bitmap. See clearMapDs.
-        _globalMapOverlay.value = flipVertically(
-            Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888))
+        _globalMapOverlay.value = mapBitmap(pixels, width, height)
     }
 
     /** Called from native with one segment's fog mask. ALPHA_8 — one byte per texel. */
@@ -940,11 +929,7 @@ object GameStateRepository {
             val a = rgba[i * 4 + 3].toInt() and 0xFF
             pixels[i] = (a shl 24) or (r shl 16) or (g shl 8) or b
         }
-        val raw = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-        // Flip vertically: OpenGL row 0 = bottom, Android bitmap row 0 = top.
-        val flipMatrix = Matrix().apply { preScale(1f, -1f) }
-        val bmp = Bitmap.createBitmap(raw, 0, 0, width, height, flipMatrix, false)
-        raw.recycle()
+        val bmp = mapBitmap(pixels, width, height)
 
         if (isInterior != 0) {
             if (segX == 0 && segY == 0) {

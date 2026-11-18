@@ -198,7 +198,7 @@ android {
         versionCode = derivedVersionCode
         versionName = providers.exec {
             commandLine("git", "rev-parse", "--short", "HEAD")
-        }.standardOutput.asText.get().trim() + "-rgds-map3d-integration1"
+        }.standardOutput.asText.get().trim() + "-rgds-vivec-tiles1"
 
         // Stable legacy asset revision; the RG DS resource stamp also includes the performance release.
         buildConfigField("int", "RANDOMIZER", "564")

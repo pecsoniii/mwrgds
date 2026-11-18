@@ -83,10 +83,10 @@ internal object RgdsControls {
         map3d = !map3d
         prefs?.edit()?.putBoolean("map_3d", map3d)?.apply()
     }
-    /** The HUD minimap's zoom in x1.25 steps from the old Field map (level 0): -3 is ~0.5x, 5 ~3x. */
+    /** HUD map zoom in x1.25 steps: -8 is ~0.17x (3x wider than the old -3 limit), 5 ~3x. */
     var mapZoomLevel by mutableIntStateOf(0); private set
     val mapZoom: Float get() = Math.pow(1.25, mapZoomLevel.toDouble()).toFloat()
-    const val MIN_ZOOM_LEVEL = -3
+    const val MIN_ZOOM_LEVEL = -8
     const val MAX_ZOOM_LEVEL = 5
     fun zoomMap(steps: Int) {
         mapZoomLevel = (mapZoomLevel + steps).coerceIn(MIN_ZOOM_LEVEL, MAX_ZOOM_LEVEL)
